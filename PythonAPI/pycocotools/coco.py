@@ -318,7 +318,7 @@ class COCO:
             if type(resFile) == np.ndarray:
                 ext.cpp_load_res_numpy(res.dataset,resFile)
             else:
-                print('resFile is',resFile)
+                # print('resFile is',resFile)
                 if type(resFile) == str:
                     anns = json.load(open(resFile))
                 else:
