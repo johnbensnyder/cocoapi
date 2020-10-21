@@ -141,6 +141,17 @@ def encode(np.ndarray[np.uint8_t, ndim=3, mode='fortran'] mask):
     objs = _toString(Rs)
     return objs
 
+def encode_batch(masks):
+    cdef RLEs Rs = RLEs(1)
+    cdef np.ndarray[np.uint8_t, ndim=3] mask
+    objs = []
+    for ii in range(len(masks)):
+      h, w, n = masks[ii].shape[0], masks[ii].shape[1], 1
+      mask = masks[ii].reshape((h,w,n), order='F')
+      rleEncode(Rs._R,<byte*>mask.data,h,w,n)
+      objs.append(_toString(Rs)[0])
+    return objs
+
 # decode mask from compressed list of RLE string or RLEs object
 def decode(rleObjs):
     cdef RLEs Rs = _frString(rleObjs)

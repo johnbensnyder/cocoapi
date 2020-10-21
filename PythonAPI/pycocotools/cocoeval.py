@@ -143,7 +143,8 @@ class COCOeval:
         self.params=p
 
         if self.use_ext:
-            p.imgIds,p.catIds,self.eval = ext.cpp_evaluate(p.useCats,p.areaRng,p.iouThrs,p.maxDets,p.recThrs,p.iouType,self.num_threads)
+            #p.imgIds,p.catIds,self.eval = ext.cpp_evaluate(p.useCats,p.areaRng,p.iouThrs,p.maxDets,p.recThrs,p.iouType,self.num_threads)
+            p.imgIds,p.catIds,self.eval = ext.cpp_evaluate_dist(p.useCats,p.areaRng,p.iouThrs,p.maxDets,p.recThrs,p.iouType,self.num_threads)
             toc = time.time()
             print('DONE (t={:0.2f}s).'.format(toc-tic))
             return
@@ -322,7 +323,7 @@ class COCOeval:
                 'dtIgnore':     dtIg,
             }
 
-    def accumulate(self, p = None):
+    def accumulate(self, p = None, dist = False):
         '''
         Accumulate per image evaluation results and store the result in self.eval
         :param p: input params for evaluation
@@ -372,19 +373,46 @@ class COCOeval:
                     E = [e for e in E if not e is None]
                     if len(E) == 0:
                         continue
+
+                    gtIg = np.concatenate([e['gtIgnore'] for e in E])
+                    
+                    if(dist):
+                      from mpi4py import MPI
+                      comm = MPI.COMM_WORLD
+                      rank = comm.Get_rank()
+                      size = comm.Get_size()
+                      gtIg1 = comm.allgather(gtIg)
+                      
+                      gtIg = np.concatenate(gtIg1, axis=0)
+                      
+                    npig = np.count_nonzero(gtIg==0 )
+                    if npig == 0:
+                        continue
+
+                    dtm  = np.concatenate([e['dtMatches'][:,0:maxDet] for e in E], axis=1)
+                    dtIg = np.concatenate([e['dtIgnore'][:,0:maxDet]  for e in E], axis=1)
                     dtScores = np.concatenate([e['dtScores'][0:maxDet] for e in E])
 
+                    if(dist):
+                      dtm1  = comm.gather(dtm)
+                      dtIg1 = comm.gather(dtIg)
+                      dtScores1 = comm.gather(dtScores)
+
+                      if(rank == 0):
+                        dtm = np.concatenate(dtm1, axis=1)
+                        dtIg = np.concatenate(dtIg1, axis=1)
+                        dtScores = np.concatenate(dtScores1, axis=0)
+                      else:
+                        continue
+                        
                     # different sorting method generates slightly different results.
                     # mergesort is used to be consistent as Matlab implementation.
                     inds = np.argsort(-dtScores, kind='mergesort')
                     dtScoresSorted = dtScores[inds]
-
-                    dtm  = np.concatenate([e['dtMatches'][:,0:maxDet] for e in E], axis=1)[:,inds]
-                    dtIg = np.concatenate([e['dtIgnore'][:,0:maxDet]  for e in E], axis=1)[:,inds]
-                    gtIg = np.concatenate([e['gtIgnore'] for e in E])
-                    npig = np.count_nonzero(gtIg==0 )
-                    if npig == 0:
-                        continue
+                    dtm  = dtm[:,inds]
+                    dtIg = dtIg[:,inds]
+                    
+                    
                     tps = np.logical_and(               dtm,  np.logical_not(dtIg) )
                     fps = np.logical_and(np.logical_not(dtm), np.logical_not(dtIg) )
 
@@ -398,7 +426,6 @@ class COCOeval:
                         pr = tp / (fp+tp+np.spacing(1))
                         q  = np.zeros((R,))
                         ss = np.zeros((R,))
-
                         if nd:
                             recall[t,k,a,m] = rc[-1]
                         else:
