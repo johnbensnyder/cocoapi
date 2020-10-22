@@ -123,7 +123,7 @@ class COCOeval:
         self.evalImgs = defaultdict(list)   # per-image per-category evaluation results
         self.eval     = {}                  # accumulated evaluation results
 
-    def evaluate(self):
+    def evaluate(self, dist=False):
         '''
         Run per image evaluation on given images and store results (a list of dict) in self.evalImgs
         :return: None
@@ -144,8 +144,10 @@ class COCOeval:
         self.params=p
 
         if self.use_ext:
-            p.imgIds,p.catIds,self.eval = ext.cpp_evaluate(p.useCats,p.areaRng,p.iouThrs,p.maxDets,p.recThrs,p.iouType,self.num_threads)
-            #p.imgIds,p.catIds,self.eval = ext.cpp_evaluate_dist(p.useCats,p.areaRng,p.iouThrs,p.maxDets,p.recThrs,p.iouType,self.num_threads)
+            if(dist):
+              p.imgIds,p.catIds,self.eval = ext.cpp_evaluate_dist(p.useCats,p.areaRng,p.iouThrs,p.maxDets,p.recThrs,p.iouType,self.num_threads, p.imgIds,dist)
+            else:
+              p.imgIds,p.catIds,self.eval = ext.cpp_evaluate(p.useCats,p.areaRng,p.iouThrs,p.maxDets,p.recThrs,p.iouType,self.num_threads)
             toc = time.time()
             print('DONE (t={:0.2f}s).'.format(toc-tic))
             return

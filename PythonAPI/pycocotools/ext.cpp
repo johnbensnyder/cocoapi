@@ -1,21 +1,20 @@
-#include <pybind11/pybind11.h>
-#include <pybind11/numpy.h>
-#include <pybind11/stl.h>
-#include <chrono>
+#include <mpi.h>
 #include <omp.h>
-//#include <mpi.h>
+#include <pybind11/numpy.h>
+#include <pybind11/pybind11.h>
+#include <pybind11/stl.h>
+
+#include <chrono>
 
 namespace py = pybind11;
 
-struct image_struct
-{
+struct image_struct {
   size_t id;
   int h;
   int w;
 };
 
-struct anns_struct
-{
+struct anns_struct {
   int image_id;
   int category_id;
   size_t id;
@@ -34,15 +33,14 @@ struct anns_struct
 std::vector<int64_t> imgids;
 std::vector<int64_t> catids;
 std::unordered_map<size_t, image_struct> imgsgt;
-//std::unordered_map<size_t, image_struct> imgsdt;
-//std::unordered_map<size_t, anns_struct> annsgt;
-//std::unordered_map<size_t, anns_struct> annsdt;
-//std::unordered_map<size_t, std::vector<anns_struct>> gtimgToAnns;
-//std::unordered_map<size_t, std::vector<anns_struct>> dtimgToAnns;
+// std::unordered_map<size_t, image_struct> imgsdt;
+// std::unordered_map<size_t, anns_struct> annsgt;
+// std::unordered_map<size_t, anns_struct> annsdt;
+// std::unordered_map<size_t, std::vector<anns_struct>> gtimgToAnns;
+// std::unordered_map<size_t, std::vector<anns_struct>> dtimgToAnns;
 
 // dict type
-struct data_struct
-{
+struct data_struct {
   std::vector<float> area;
   std::vector<int> iscrowd;
   std::vector<std::vector<float>> bbox;
@@ -64,8 +62,7 @@ std::unordered_map<size_t, size_t> dtinds;
 std::unordered_map<size_t, std::vector<double>> ious_map;
 
 template <typename T>
-std::vector<size_t> sort_indices(std::vector<T> &v)
-{
+std::vector<size_t> sort_indices(std::vector<T> &v) {
   std::vector<size_t> indices(v.size());
   std::iota(indices.begin(), indices.end(), 0);
 
@@ -76,24 +73,31 @@ std::vector<size_t> sort_indices(std::vector<T> &v)
   return indices;
 }
 
-void accumulate(int T, int A, std::vector<int> &maxDets, std::vector<double> &recThrs,
-                std::vector<double> &precision,
-                std::vector<double> &recall,
-                std::vector<double> &scores,
-                int K, int I, int R, int M, int k, int a,
+void accumulate(int T, int A, std::vector<int> &maxDets,
+                std::vector<double> &recThrs, std::vector<double> &precision,
+                std::vector<double> &recall, std::vector<double> &scores, int K,
+                int I, int R, int M, int k, int a,
                 std::vector<std::vector<int64_t>> &gtignore,
                 std::vector<std::vector<double>> &dtignore,
                 std::vector<std::vector<double>> &dtmatches,
                 std::vector<std::vector<double>> &dtscores);
 
+void accumulate_dist(int T, int A, std::vector<int> &maxDets,
+                     std::vector<double> &recThrs,
+                     std::vector<double> &precision,
+                     std::vector<double> &recall, std::vector<double> &scores,
+                     int K, int I, int R, int M, int k, int a,
+                     std::vector<std::vector<int64_t>> &gtignore,
+                     std::vector<std::vector<double>> &dtignore,
+                     std::vector<std::vector<double>> &dtmatches,
+                     std::vector<std::vector<double>> &dtscores, bool dist);
+
 void compute_iou(std::string iouType, int maxDet, int useCats);
 
-std::tuple<py::array_t<int64_t>, py::array_t<int64_t>, py::dict>
-cpp_evaluate(int useCats,
-             std::vector<std::vector<double>> areaRngs,
-             std::vector<double> iouThrs_ptr,
-             std::vector<int> maxDets, std::vector<double> recThrs, std::string iouType, int nthreads)
-{
+std::tuple<py::array_t<int64_t>, py::array_t<int64_t>, py::dict> cpp_evaluate(
+    int useCats, std::vector<std::vector<double>> areaRngs,
+    std::vector<double> iouThrs_ptr, std::vector<int> maxDets,
+    std::vector<double> recThrs, std::string iouType, int nthreads) {
   assert(useCats > 0);
 
   int T = iouThrs_ptr.size();
@@ -109,24 +113,20 @@ cpp_evaluate(int useCats,
   compute_iou(iouType, maxDet, useCats);
 
 #pragma omp parallel for num_threads(nthreads)
-  for (size_t c = 0; c < catids.size(); c++)
-  {
-    for (size_t a = 0; a < areaRngs.size(); a++)
-    {
+  for (size_t c = 0; c < catids.size(); c++) {
+    for (size_t a = 0; a < areaRngs.size(); a++) {
       std::vector<std::vector<int64_t>> gtIgnore_list;
       std::vector<std::vector<double>> dtIgnore_list;
       std::vector<std::vector<double>> dtMatches_list;
       std::vector<std::vector<double>> dtScores_list;
-      for (size_t i = 0; i < imgids.size(); i++)
-      {
+      for (size_t i = 0; i < imgids.size(); i++) {
         int catId = catids[c];
         int imgId = imgids[i];
 
         auto gtsm = &gts_map[key(imgId, catId)];
         auto dtsm = &dts_map[key(imgId, catId)];
 
-        if ((gtsm->id.size() == 0) && (dtsm->id.size() == 0))
-        {
+        if ((gtsm->id.size() == 0) && (dtsm->id.size() == 0)) {
           continue;
         }
 
@@ -156,90 +156,70 @@ cpp_evaluate(int useCats,
         auto dtScores = &dtScores_list.back()[0];
         auto ious = &ious_map[key(imgId, catId)][0];
         // set ignores
-        for (int g = 0; g < G; g++)
-        {
+        for (int g = 0; g < G; g++) {
           double area = gtsm->area[g];
           int64_t ignore = gtsm->ignore[g];
-          if (ignore || (area < aRng0 || area > aRng1))
-          {
+          if (ignore || (area < aRng0 || area > aRng1)) {
             gtIg[g] = 1;
-          }
-          else
-          {
+          } else {
             gtIg[g] = 0;
           }
         }
         // sort dt highest score first, sort gt ignore last
         std::vector<float> ignores;
-        for (int g = 0; g < G; g++)
-        {
+        for (int g = 0; g < G; g++) {
           auto ignore = gtIg[g];
           ignores.push_back(ignore);
         }
         auto g_indices = sort_indices(ignores);
-        for (int g = 0; g < G; g++)
-        {
+        for (int g = 0; g < G; g++) {
           gtind[g] = g_indices[g];
         }
         std::vector<float> scores;
-        for (int d = 0; d < Do; d++)
-        {
+        for (int d = 0; d < Do; d++) {
           auto score = -dtsm->score[d];
           scores.push_back(score);
         }
         auto indices = sort_indices(scores);
-        for (int d = 0; d < Do; d++)
-        {
+        for (int d = 0; d < Do; d++) {
           dtind[d] = indices[d];
         }
         // iscrowd and ignores
-        for (int g = 0; g < G; g++)
-        {
+        for (int g = 0; g < G; g++) {
           iscrowd[g] = gtsm->iscrowd[gtind[g]];
           gtIg[g] = ignores[gtind[g]];
         }
         // zero arrays
-        for (int t = 0; t < T; t++)
-        {
-          for (int g = 0; g < G; g++)
-          {
+        for (int t = 0; t < T; t++) {
+          for (int g = 0; g < G; g++) {
             gtm[t * G + g] = 0;
           }
-          for (int d = 0; d < D; d++)
-          {
+          for (int d = 0; d < D; d++) {
             dtm[t * D + d] = 0;
             dtIg[t * D + d] = 0;
           }
         }
         // if not len(ious)==0:
-        if (I != 0)
-        {
-          for (int t = 0; t < T; t++)
-          {
+        if (I != 0) {
+          for (int t = 0; t < T; t++) {
             double thresh = iouThrs_ptr[t];
-            for (int d = 0; d < D; d++)
-            {
+            for (int d = 0; d < D; d++) {
               double iou = thresh < (1 - 1e-10) ? thresh : (1 - 1e-10);
               int m = -1;
-              for (int g = 0; g < G; g++)
-              {
+              for (int g = 0; g < G; g++) {
                 // if this gt already matched, and not a crowd, continue
-                if ((gtm[t * G + g] > 0) && (iscrowd[g] == 0))
-                  continue;
+                if ((gtm[t * G + g] > 0) && (iscrowd[g] == 0)) continue;
                 // if dt matched to reg gt, and on ignore gt, stop
-                if ((m > -1) && (gtIg[m] == 0) && (gtIg[g] == 1))
-                  break;
+                if ((m > -1) && (gtIg[m] == 0) && (gtIg[g] == 1)) break;
                 // continue to next gt unless better match made
                 double val = ious[d + I * gtind[g]];
-                if (val < iou)
-                  continue;
+                if (val < iou) continue;
                 // if match successful and best so far, store appropriately
                 iou = val;
                 m = g;
               }
               // if match made store id of match for both dt and gt
-              if (m == -1)
-                continue;
+              if (m == -1) continue;
               dtIg[t * D + d] = gtIg[m];
               dtm[t * D + d] = gtsm->id[gtind[m]];
               gtm[t * G + m] = dtsm->id[dtind[d]];
@@ -247,12 +227,10 @@ cpp_evaluate(int useCats,
           }
         }
         // set unmatched detections outside of area range to ignore
-        for (int d = 0; d < D; d++)
-        {
+        for (int d = 0; d < D; d++) {
           float val = dtsm->area[dtind[d]];
           double x3 = (val < aRng0 || val > aRng1);
-          for (int t = 0; t < T; t++)
-          {
+          for (int t = 0; t < T; t++) {
             double x1 = dtIg[t * D + d];
             double x2 = dtm[t * D + d];
             double res = x1 || ((x2 == 0) && x3);
@@ -260,36 +238,29 @@ cpp_evaluate(int useCats,
           }
         }
         // store results for given image and category
-        for (int g = 0; g < G; g++)
-        {
+        for (int g = 0; g < G; g++) {
           gtIds[g] = gtsm->id[gtind[g]];
         }
-        for (int d = 0; d < D; d++)
-        {
+        for (int d = 0; d < D; d++) {
           dtIds[d] = dtsm->id[dtind[d]];
           dtScores[d] = dtsm->score[dtind[d]];
         }
       }
       // accumulate
       accumulate(iouThrs_ptr.size(), areaRngs.size(), maxDets, recThrs,
-                 precision,
-                 recall,
-                 scores,
-                 catids.size(), imgids.size(), recThrs.size(), maxDets.size(), c, a,
-                 gtIgnore_list,
-                 dtIgnore_list,
-                 dtMatches_list,
-                 dtScores_list);
+                 precision, recall, scores, catids.size(), imgids.size(),
+                 recThrs.size(), maxDets.size(), c, a, gtIgnore_list,
+                 dtIgnore_list, dtMatches_list, dtScores_list);
     }
   }
 
   // clear arrays
   std::unordered_map<size_t, std::vector<double>>().swap(ious_map);
-  //std::unordered_map<size_t, data_struct>().swap(gts_map);
+  // std::unordered_map<size_t, data_struct>().swap(gts_map);
   std::unordered_map<size_t, data_struct>().swap(dts_map);
-  //std::unordered_map<size_t, image_struct>().swap(imgsdt);
-  //std::unordered_map<size_t, anns_struct>().swap(annsdt);
-  //std::unordered_map<size_t, std::vector<anns_struct>>().swap(dtimgToAnns);
+  // std::unordered_map<size_t, image_struct>().swap(imgsdt);
+  // std::unordered_map<size_t, anns_struct>().swap(annsdt);
+  // std::unordered_map<size_t, std::vector<anns_struct>>().swap(dtimgToAnns);
 
   // dictionary
   py::dict dictret;
@@ -300,22 +271,29 @@ cpp_evaluate(int useCats,
   l.append(A);
   l.append(M);
   dictret["counts"] = l;
-  dictret["precision"] = py::array_t<double>({T, R, K, A, M}, {R * K * A * M * 8, K * A * M * 8, A * M * 8, M * 8, 8}, &precision[0]);
-  dictret["recall"] = py::array_t<double>({T, K, A, M}, {K * A * M * 8, A * M * 8, M * 8, 8}, &recall[0]);
-  dictret["scores"] = py::array_t<double>({T, R, K, A, M}, {R * K * A * M * 8, K * A * M * 8, A * M * 8, M * 8, 8}, &scores[0]);
+  dictret["precision"] = py::array_t<double>(
+      {T, R, K, A, M}, {R * K * A * M * 8, K * A * M * 8, A * M * 8, M * 8, 8},
+      &precision[0]);
+  dictret["recall"] = py::array_t<double>(
+      {T, K, A, M}, {K * A * M * 8, A * M * 8, M * 8, 8}, &recall[0]);
+  dictret["scores"] = py::array_t<double>(
+      {T, R, K, A, M}, {R * K * A * M * 8, K * A * M * 8, A * M * 8, M * 8, 8},
+      &scores[0]);
 
-  py::array_t<int64_t> imgidsret = py::array_t<int64_t>({imgids.size()}, {8}, &imgids[0]);
-  py::array_t<int64_t> catidsret = py::array_t<int64_t>({catids.size()}, {8}, &catids[0]);
+  py::array_t<int64_t> imgidsret =
+      py::array_t<int64_t>({imgids.size()}, {8}, &imgids[0]);
+  py::array_t<int64_t> catidsret =
+      py::array_t<int64_t>({catids.size()}, {8}, &catids[0]);
 
-  return std::tuple<py::array_t<int64_t>, py::array_t<int64_t>, py::dict>(imgidsret, catidsret, dictret);
+  return std::tuple<py::array_t<int64_t>, py::array_t<int64_t>, py::dict>(
+      imgidsret, catidsret, dictret);
 }
 
 std::tuple<py::array_t<int64_t>, py::array_t<int64_t>, py::dict>
-cpp_evaluate_dist(int useCats,
-                  std::vector<std::vector<double>> areaRngs,
-                  std::vector<double> iouThrs_ptr,
-                  std::vector<int> maxDets, std::vector<double> recThrs, std::string iouType, int nthreads)
-{
+cpp_evaluate_dist(int useCats, std::vector<std::vector<double>> areaRngs,
+                  std::vector<double> iouThrs_ptr, std::vector<int> maxDets,
+                  std::vector<double> recThrs, std::string iouType,
+                  int nthreads, std::vector<int64_t> imgids, bool dist) {
   assert(useCats > 0);
 
   // int world_size;
@@ -336,24 +314,20 @@ cpp_evaluate_dist(int useCats,
   compute_iou(iouType, maxDet, useCats);
 
   //#pragma omp parallel for num_threads(nthreads)
-  for (size_t c = 0; c < catids.size(); c++)
-  {
-    for (size_t a = 0; a < areaRngs.size(); a++)
-    {
+  for (size_t c = 0; c < catids.size(); c++) {
+    for (size_t a = 0; a < areaRngs.size(); a++) {
       std::vector<std::vector<int64_t>> gtIgnore_list;
       std::vector<std::vector<double>> dtIgnore_list;
       std::vector<std::vector<double>> dtMatches_list;
       std::vector<std::vector<double>> dtScores_list;
-      for (size_t i = 0; i < imgids.size(); i++)
-      {
+      for (size_t i = 0; i < imgids.size(); i++) {
         int catId = catids[c];
         int imgId = imgids[i];
 
         auto gtsm = &gts_map[key(imgId, catId)];
         auto dtsm = &dts_map[key(imgId, catId)];
 
-        if ((gtsm->id.size() == 0) && (dtsm->id.size() == 0))
-        {
+        if ((gtsm->id.size() == 0) && (dtsm->id.size() == 0)) {
           continue;
         }
 
@@ -383,90 +357,70 @@ cpp_evaluate_dist(int useCats,
         auto dtScores = &dtScores_list.back()[0];
         auto ious = &ious_map[key(imgId, catId)][0];
         // set ignores
-        for (int g = 0; g < G; g++)
-        {
+        for (int g = 0; g < G; g++) {
           double area = gtsm->area[g];
           int64_t ignore = gtsm->ignore[g];
-          if (ignore || (area < aRng0 || area > aRng1))
-          {
+          if (ignore || (area < aRng0 || area > aRng1)) {
             gtIg[g] = 1;
-          }
-          else
-          {
+          } else {
             gtIg[g] = 0;
           }
         }
         // sort dt highest score first, sort gt ignore last
         std::vector<float> ignores;
-        for (int g = 0; g < G; g++)
-        {
+        for (int g = 0; g < G; g++) {
           auto ignore = gtIg[g];
           ignores.push_back(ignore);
         }
         auto g_indices = sort_indices(ignores);
-        for (int g = 0; g < G; g++)
-        {
+        for (int g = 0; g < G; g++) {
           gtind[g] = g_indices[g];
         }
         std::vector<float> scores;
-        for (int d = 0; d < Do; d++)
-        {
+        for (int d = 0; d < Do; d++) {
           auto score = -dtsm->score[d];
           scores.push_back(score);
         }
         auto indices = sort_indices(scores);
-        for (int d = 0; d < Do; d++)
-        {
+        for (int d = 0; d < Do; d++) {
           dtind[d] = indices[d];
         }
         // iscrowd and ignores
-        for (int g = 0; g < G; g++)
-        {
+        for (int g = 0; g < G; g++) {
           iscrowd[g] = gtsm->iscrowd[gtind[g]];
           gtIg[g] = ignores[gtind[g]];
         }
         // zero arrays
-        for (int t = 0; t < T; t++)
-        {
-          for (int g = 0; g < G; g++)
-          {
+        for (int t = 0; t < T; t++) {
+          for (int g = 0; g < G; g++) {
             gtm[t * G + g] = 0;
           }
-          for (int d = 0; d < D; d++)
-          {
+          for (int d = 0; d < D; d++) {
             dtm[t * D + d] = 0;
             dtIg[t * D + d] = 0;
           }
         }
         // if not len(ious)==0:
-        if (I != 0)
-        {
-          for (int t = 0; t < T; t++)
-          {
+        if (I != 0) {
+          for (int t = 0; t < T; t++) {
             double thresh = iouThrs_ptr[t];
-            for (int d = 0; d < D; d++)
-            {
+            for (int d = 0; d < D; d++) {
               double iou = thresh < (1 - 1e-10) ? thresh : (1 - 1e-10);
               int m = -1;
-              for (int g = 0; g < G; g++)
-              {
+              for (int g = 0; g < G; g++) {
                 // if this gt already matched, and not a crowd, continue
-                if ((gtm[t * G + g] > 0) && (iscrowd[g] == 0))
-                  continue;
+                if ((gtm[t * G + g] > 0) && (iscrowd[g] == 0)) continue;
                 // if dt matched to reg gt, and on ignore gt, stop
-                if ((m > -1) && (gtIg[m] == 0) && (gtIg[g] == 1))
-                  break;
+                if ((m > -1) && (gtIg[m] == 0) && (gtIg[g] == 1)) break;
                 // continue to next gt unless better match made
                 double val = ious[d + I * gtind[g]];
-                if (val < iou)
-                  continue;
+                if (val < iou) continue;
                 // if match successful and best so far, store appropriately
                 iou = val;
                 m = g;
               }
               // if match made store id of match for both dt and gt
-              if (m == -1)
-                continue;
+              if (m == -1) continue;
               dtIg[t * D + d] = gtIg[m];
               dtm[t * D + d] = gtsm->id[gtind[m]];
               gtm[t * G + m] = dtsm->id[dtind[d]];
@@ -474,12 +428,10 @@ cpp_evaluate_dist(int useCats,
           }
         }
         // set unmatched detections outside of area range to ignore
-        for (int d = 0; d < D; d++)
-        {
+        for (int d = 0; d < D; d++) {
           float val = dtsm->area[dtind[d]];
           double x3 = (val < aRng0 || val > aRng1);
-          for (int t = 0; t < T; t++)
-          {
+          for (int t = 0; t < T; t++) {
             double x1 = dtIg[t * D + d];
             double x2 = dtm[t * D + d];
             double res = x1 || ((x2 == 0) && x3);
@@ -487,20 +439,20 @@ cpp_evaluate_dist(int useCats,
           }
         }
         // store results for given image and category
-        for (int g = 0; g < G; g++)
-        {
+        for (int g = 0; g < G; g++) {
           gtIds[g] = gtsm->id[gtind[g]];
         }
-        for (int d = 0; d < D; d++)
-        {
+        for (int d = 0; d < D; d++) {
           dtIds[d] = dtsm->id[dtind[d]];
           dtScores[d] = dtsm->score[dtind[d]];
         }
       }
       // Gather from all nodes before accumulate
-      // std::cout << gtIgnore_list.size() << " " << gtIgnore_list[0].size() << "\n";
+      // std::cout << gtIgnore_list.size() << " " << gtIgnore_list[0].size() <<
+      // "\n";
 
-      // std::vector<std::vector<int64_t>> gtIgnore_list_send(gtIgnore_list.size());
+      // std::vector<std::vector<int64_t>>
+      // gtIgnore_list_send(gtIgnore_list.size());
 
       // std::vector<std::vector<int64_t>> gtIgnore_list_rcv;
       // std::vector<std::vector<double>> dtIgnore_list_rcv;
@@ -511,32 +463,28 @@ cpp_evaluate_dist(int useCats,
       // {
       //   gtIgnore_list_rcv.resize(gtIgnore_list.size() * world_size);
       // }
-      // std::cout << MPI_Gather(&gtIgnore_list_send[0], gtIgnore_list.size(), MPI_INT64_T, &gtIgnore_list_rcv[0], gtIgnore_list.size(), MPI_INT64_T, 0, MPI_COMM_WORLD);
-      // if (world_rank == 0)
+      // std::cout << MPI_Gather(&gtIgnore_list_send[0], gtIgnore_list.size(),
+      // MPI_INT64_T, &gtIgnore_list_rcv[0], gtIgnore_list.size(), MPI_INT64_T,
+      // 0, MPI_COMM_WORLD); if (world_rank == 0)
       // {
       //   std::cout << gtIgnore_list_rcv.size() << std::endl;
       // }
 
       // accumulate
-      accumulate(iouThrs_ptr.size(), areaRngs.size(), maxDets, recThrs,
-                 precision,
-                 recall,
-                 scores,
-                 catids.size(), imgids.size(), recThrs.size(), maxDets.size(), c, a,
-                 gtIgnore_list,
-                 dtIgnore_list,
-                 dtMatches_list,
-                 dtScores_list);
+      accumulate_dist(iouThrs_ptr.size(), areaRngs.size(), maxDets, recThrs,
+                      precision, recall, scores, catids.size(), imgids.size(),
+                      recThrs.size(), maxDets.size(), c, a, gtIgnore_list,
+                      dtIgnore_list, dtMatches_list, dtScores_list, dist);
     }
   }
 
   // clear arrays
   std::unordered_map<size_t, std::vector<double>>().swap(ious_map);
-  //std::unordered_map<size_t, data_struct>().swap(gts_map);
+  // std::unordered_map<size_t, data_struct>().swap(gts_map);
   std::unordered_map<size_t, data_struct>().swap(dts_map);
-  //std::unordered_map<size_t, image_struct>().swap(imgsdt);
-  //std::unordered_map<size_t, anns_struct>().swap(annsdt);
-  //std::unordered_map<size_t, std::vector<anns_struct>>().swap(dtimgToAnns);
+  // std::unordered_map<size_t, image_struct>().swap(imgsdt);
+  // std::unordered_map<size_t, anns_struct>().swap(annsdt);
+  // std::unordered_map<size_t, std::vector<anns_struct>>().swap(dtimgToAnns);
 
   // dictionary
   py::dict dictret;
@@ -547,19 +495,26 @@ cpp_evaluate_dist(int useCats,
   l.append(A);
   l.append(M);
   dictret["counts"] = l;
-  dictret["precision"] = py::array_t<double>({T, R, K, A, M}, {R * K * A * M * 8, K * A * M * 8, A * M * 8, M * 8, 8}, &precision[0]);
-  dictret["recall"] = py::array_t<double>({T, K, A, M}, {K * A * M * 8, A * M * 8, M * 8, 8}, &recall[0]);
-  dictret["scores"] = py::array_t<double>({T, R, K, A, M}, {R * K * A * M * 8, K * A * M * 8, A * M * 8, M * 8, 8}, &scores[0]);
+  dictret["precision"] = py::array_t<double>(
+      {T, R, K, A, M}, {R * K * A * M * 8, K * A * M * 8, A * M * 8, M * 8, 8},
+      &precision[0]);
+  dictret["recall"] = py::array_t<double>(
+      {T, K, A, M}, {K * A * M * 8, A * M * 8, M * 8, 8}, &recall[0]);
+  dictret["scores"] = py::array_t<double>(
+      {T, R, K, A, M}, {R * K * A * M * 8, K * A * M * 8, A * M * 8, M * 8, 8},
+      &scores[0]);
 
-  py::array_t<int64_t> imgidsret = py::array_t<int64_t>({imgids.size()}, {8}, &imgids[0]);
-  py::array_t<int64_t> catidsret = py::array_t<int64_t>({catids.size()}, {8}, &catids[0]);
+  py::array_t<int64_t> imgidsret =
+      py::array_t<int64_t>({imgids.size()}, {8}, &imgids[0]);
+  py::array_t<int64_t> catidsret =
+      py::array_t<int64_t>({catids.size()}, {8}, &catids[0]);
 
-  return std::tuple<py::array_t<int64_t>, py::array_t<int64_t>, py::dict>(imgidsret, catidsret, dictret);
+  return std::tuple<py::array_t<int64_t>, py::array_t<int64_t>, py::dict>(
+      imgidsret, catidsret, dictret);
 }
 
 template <typename T>
-std::vector<size_t> stable_sort_indices(std::vector<T> &v)
-{
+std::vector<size_t> stable_sort_indices(std::vector<T> &v) {
   std::vector<size_t> indices(v.size());
   std::iota(indices.begin(), indices.end(), 0);
 
@@ -571,30 +526,25 @@ std::vector<size_t> stable_sort_indices(std::vector<T> &v)
 }
 
 template <typename T>
-std::vector<T> assemble_array(std::vector<std::vector<T>> &list, size_t nrows, size_t maxDet, std::vector<size_t> &indices)
-{
+std::vector<T> assemble_array(std::vector<std::vector<T>> &list, size_t nrows,
+                              size_t maxDet, std::vector<size_t> &indices) {
   std::vector<T> q;
   // Need to get N_rows from an entry in order to compute output size
   // copy first maxDet entries from each entry -> array
-  for (size_t e = 0; e < list.size(); ++e)
-  {
+  for (size_t e = 0; e < list.size(); ++e) {
     auto arr = list[e];
     size_t cols = arr.size() / nrows;
     size_t ncols = std::min(maxDet, cols);
-    for (size_t j = 0; j < ncols; ++j)
-    {
-      for (size_t i = 0; i < nrows; ++i)
-      {
+    for (size_t j = 0; j < ncols; ++j) {
+      for (size_t i = 0; i < nrows; ++i) {
         q.push_back(arr[i * cols + j]);
       }
     }
   }
   // now we've done that, copy the relevant entries based on indices
   std::vector<T> res(indices.size() * nrows);
-  for (size_t i = 0; i < nrows; ++i)
-  {
-    for (size_t j = 0; j < indices.size(); ++j)
-    {
+  for (size_t i = 0; i < nrows; ++i) {
+    for (size_t j = 0; j < indices.size(); ++j) {
       res[i * indices.size() + j] = q[indices[j] * nrows + i];
     }
   }
@@ -602,29 +552,233 @@ std::vector<T> assemble_array(std::vector<std::vector<T>> &list, size_t nrows, s
   return res;
 }
 
-void accumulate(int T, int A, std::vector<int> &maxDets, std::vector<double> &recThrs,
-                std::vector<double> &precision,
-                std::vector<double> &recall,
-                std::vector<double> &scores,
-                int K, int I, int R, int M, int k, int a,
+std::vector<double> GatherArrays(std::vector<double> q, int world_size,
+                                 int world_rank, MPI_Comm accum_comm) {
+  // Gather arrays before getting sorted
+  // Gather sizes They can be different
+  int array_sizes[world_size];
+  size_t qsize = q.size();
+  int mpi_ret =
+      MPI_Gather(&qsize, 1, MPI_INT, &array_sizes, 1, MPI_INT, 0, accum_comm);
+  assert(mpi_ret == MPI_SUCCESS);
+  int total_size = 0;
+  std::vector<int> displacements(world_size);
+  if (world_rank == 0) {
+    for (int ii = 0; ii < world_size; ii++) {
+      displacements[ii] = total_size;
+      total_size += array_sizes[ii];
+    }
+  }
+
+  std::vector<double> q_total(total_size);
+
+  // Gatherv
+  mpi_ret =
+      MPI_Gatherv(q.data(), q.size(), MPI_DOUBLE, q_total.data(), array_sizes,
+                  displacements.data(), MPI_DOUBLE, 0, accum_comm);
+  assert(mpi_ret == MPI_SUCCESS);
+
+  return q_total;
+}
+
+std::vector<double> assemble_array_dist(std::vector<std::vector<double>> &list,
+                                        size_t nrows, size_t maxDet,
+                                        std::vector<size_t> &indices,
+                                        int world_size, int world_rank,
+                                        MPI_Comm accum_comm) {
+  std::vector<double> q;
+  // Need to get N_rows from an entry in order to compute output size
+  // copy first maxDet entries from each entry -> array
+  for (size_t e = 0; e < list.size(); ++e) {
+    auto arr = list[e];
+    size_t cols = arr.size() / nrows;
+    size_t ncols = std::min(maxDet, cols);
+    for (size_t j = 0; j < ncols; ++j) {
+      for (size_t i = 0; i < nrows; ++i) {
+        q.push_back(arr[i * cols + j]);
+      }
+    }
+  }
+  // std::vector<double> newq =
+  q = GatherArrays(q, world_size, world_rank, accum_comm);
+
+  // now we've done that, copy the relevant entries based on indices
+  std::vector<double> res(indices.size() * nrows);
+  for (size_t i = 0; i < nrows; ++i) {
+    for (size_t j = 0; j < indices.size(); ++j) {
+      res[i * indices.size() + j] = q[indices[j] * nrows + i];
+    }
+  }
+
+  return res;
+}
+
+void accumulate_dist(int T, int A, std::vector<int> &maxDets,
+                     std::vector<double> &recThrs,
+                     std::vector<double> &precision,
+                     std::vector<double> &recall, std::vector<double> &scores,
+                     int K, int I, int R, int M, int k, int a,
+                     std::vector<std::vector<int64_t>> &gtignore,
+                     std::vector<std::vector<double>> &dtignore,
+                     std::vector<std::vector<double>> &dtmatches,
+                     std::vector<std::vector<double>> &dtscores, bool dist) {
+  if (dtscores.size() == 0) return;
+
+  int world_size;
+  MPI_Comm accumulate_comm;
+  MPI_Comm_dup(MPI_COMM_WORLD, &accumulate_comm);
+  MPI_Comm_size(MPI_COMM_WORLD, &world_size);
+  int world_rank;
+  MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
+  int mpi_ret;
+
+  for (int m = 0; m < M; ++m) {
+    // gtIg = np.concatenate([e['gtIgnore'] for e in E])
+    // npig = np.count_nonzero(gtIg==0 )
+    int npig = 0;
+    for (size_t e = 0; e < gtignore.size(); ++e) {
+      auto ignore = gtignore[e];
+      for (size_t j = 0; j < ignore.size(); ++j) {
+        if (ignore[j] == 0) npig++;
+      }
+    }
+
+    // AllGather number of ignores, if all ignores continue.
+    // Might need to validate others
+    // std::cout << "NPIG (before all gather) " << npig << std::endl;
+
+    std::vector<int> npig_gather(world_size);
+    mpi_ret = MPI_Allgather(&npig, 1, MPI_INT, npig_gather.data(), 1, MPI_INT,
+                            accumulate_comm);
+    assert(MPI_SUCCESS == mpi_ret);
+
+    npig = 0;
+    for (auto &n : npig_gather) npig += n;
+
+    // std::cout << "NPIG (after all gather) " << npig << std::endl;
+    if (npig == 0) continue;
+
+    auto maxDet = maxDets[m];
+    // Concatenate first maxDet scores in each evalImg entry, -ve and sort
+    // w/indices
+    std::vector<double> dtScores;
+    for (size_t e = 0; e < dtscores.size(); ++e) {
+      auto score = dtscores[e];
+      for (size_t j = 0; j < std::min(score.size(), (size_t)maxDet); ++j) {
+        dtScores.push_back(-score[j]);
+      }
+    }
+
+    // Gather dtmatches, dtignore, dtScores
+    // Gather scores before its sorted, Inside assemble array gather
+
+    // std::vector<double> newdtScores =
+    dtScores = GatherArrays(dtScores, world_size, world_rank, accumulate_comm);
+
+    // get sorted indices of scores
+    auto indices = stable_sort_indices(dtScores);
+    std::vector<double> dtScoresSorted(dtScores.size());
+    for (size_t j = 0; j < indices.size(); ++j) {
+      dtScoresSorted[j] = -dtScores[indices[j]];
+    }
+
+    auto dtm = assemble_array_dist(dtmatches, T, maxDet, indices, world_size,
+                                   world_rank, accumulate_comm);
+    auto dtIg = assemble_array_dist(dtignore, T, maxDet, indices, world_size,
+                                    world_rank, accumulate_comm);
+
+    if (world_rank != 0) {
+      continue;
+    }
+
+    int nrows = indices.size() ? dtm.size() / indices.size() : 0;
+    std::vector<double> tp_sum(indices.size() * nrows);
+    std::vector<double> fp_sum(indices.size() * nrows);
+    for (int i = 0; i < nrows; ++i) {
+      size_t tsum = 0, fsum = 0;
+      for (size_t j = 0; j < indices.size(); ++j) {
+        int index = i * indices.size() + j;
+        tsum += (dtm[index]) && (!dtIg[index]);
+        fsum += (!dtm[index]) && (!dtIg[index]);
+        tp_sum[index] = tsum;
+        fp_sum[index] = fsum;
+      }
+    }
+
+    double eps =
+        2.220446049250313e-16;  // std::numeric_limits<double>::epsilon();
+    for (int t = 0; t < nrows; ++t) {
+      // nd = len(tp)
+      int nd = indices.size();
+      std::vector<double> rc(indices.size());
+      std::vector<double> pr(indices.size());
+      for (size_t j = 0; j < indices.size(); ++j) {
+        int index = t * indices.size() + j;
+        // rc = tp / npig
+        rc[j] = tp_sum[index] / npig;
+        // pr = tp / (fp+tp+np.spacing(1))
+        pr[j] = tp_sum[index] / (fp_sum[index] + tp_sum[index] + eps);
+      }
+
+      recall[t * K * A * M + k * A * M + a * M + m] =
+          nd ? rc[indices.size() - 1] : 0;
+
+      std::vector<double> q(R);
+      std::vector<double> ss(R);
+
+      for (int i = 0; i < R; i++) {
+        q[i] = 0;
+        ss[i] = 0;
+      }
+
+      for (int i = nd - 1; i > 0; --i) {
+        if (pr[i] > pr[i - 1]) {
+          pr[i - 1] = pr[i];
+        }
+      }
+
+      std::vector<int> inds(recThrs.size());
+      for (size_t i = 0; i < recThrs.size(); i++) {
+        auto it = std::lower_bound(rc.begin(), rc.end(), recThrs[i]);
+        inds[i] = it - rc.begin();
+      }
+
+      for (size_t ri = 0; ri < inds.size(); ri++) {
+        size_t pi = inds[ri];
+        if (pi >= pr.size()) continue;
+        q[ri] = pr[pi];
+        ss[ri] = dtScoresSorted[pi];
+      }
+
+      for (size_t i = 0; i < inds.size(); i++) {
+        // precision[t,:,k,a,m] = np.array(q)
+        size_t index =
+            t * R * K * A * M + i * K * A * M + k * A * M + a * M + m;
+        precision[index] = q[i];
+        scores[index] = ss[i];
+      }
+    }
+  }
+}
+
+void accumulate(int T, int A, std::vector<int> &maxDets,
+                std::vector<double> &recThrs, std::vector<double> &precision,
+                std::vector<double> &recall, std::vector<double> &scores, int K,
+                int I, int R, int M, int k, int a,
                 std::vector<std::vector<int64_t>> &gtignore,
                 std::vector<std::vector<double>> &dtignore,
                 std::vector<std::vector<double>> &dtmatches,
-                std::vector<std::vector<double>> &dtscores)
-{
-  if (dtscores.size() == 0)
-    return;
+                std::vector<std::vector<double>> &dtscores) {
+  if (dtscores.size() == 0) return;
 
-  for (int m = 0; m < M; ++m)
-  {
+  for (int m = 0; m < M; ++m) {
     auto maxDet = maxDets[m];
-    // Concatenate first maxDet scores in each evalImg entry, -ve and sort w/indices
+    // Concatenate first maxDet scores in each evalImg entry, -ve and sort
+    // w/indices
     std::vector<double> dtScores;
-    for (size_t e = 0; e < dtscores.size(); ++e)
-    {
+    for (size_t e = 0; e < dtscores.size(); ++e) {
       auto score = dtscores[e];
-      for (size_t j = 0; j < std::min(score.size(), (size_t)maxDet); ++j)
-      {
+      for (size_t j = 0; j < std::min(score.size(), (size_t)maxDet); ++j) {
         dtScores.push_back(-score[j]);
       }
     }
@@ -632,8 +786,7 @@ void accumulate(int T, int A, std::vector<int> &maxDets, std::vector<double> &re
     // get sorted indices of scores
     auto indices = stable_sort_indices(dtScores);
     std::vector<double> dtScoresSorted(dtScores.size());
-    for (size_t j = 0; j < indices.size(); ++j)
-    {
+    for (size_t j = 0; j < indices.size(); ++j) {
       dtScoresSorted[j] = -dtScores[indices[j]];
     }
 
@@ -643,27 +796,21 @@ void accumulate(int T, int A, std::vector<int> &maxDets, std::vector<double> &re
     // gtIg = np.concatenate([e['gtIgnore'] for e in E])
     // npig = np.count_nonzero(gtIg==0 )
     int npig = 0;
-    for (size_t e = 0; e < gtignore.size(); ++e)
-    {
+    for (size_t e = 0; e < gtignore.size(); ++e) {
       auto ignore = gtignore[e];
-      for (size_t j = 0; j < ignore.size(); ++j)
-      {
-        if (ignore[j] == 0)
-          npig++;
+      for (size_t j = 0; j < ignore.size(); ++j) {
+        if (ignore[j] == 0) npig++;
       }
     }
 
-    if (npig == 0)
-      continue;
+    if (npig == 0) continue;
 
     int nrows = indices.size() ? dtm.size() / indices.size() : 0;
     std::vector<double> tp_sum(indices.size() * nrows);
     std::vector<double> fp_sum(indices.size() * nrows);
-    for (int i = 0; i < nrows; ++i)
-    {
+    for (int i = 0; i < nrows; ++i) {
       size_t tsum = 0, fsum = 0;
-      for (size_t j = 0; j < indices.size(); ++j)
-      {
+      for (size_t j = 0; j < indices.size(); ++j) {
         int index = i * indices.size() + j;
         tsum += (dtm[index]) && (!dtIg[index]);
         fsum += (!dtm[index]) && (!dtIg[index]);
@@ -672,15 +819,14 @@ void accumulate(int T, int A, std::vector<int> &maxDets, std::vector<double> &re
       }
     }
 
-    double eps = 2.220446049250313e-16; //std::numeric_limits<double>::epsilon();
-    for (int t = 0; t < nrows; ++t)
-    {
+    double eps =
+        2.220446049250313e-16;  // std::numeric_limits<double>::epsilon();
+    for (int t = 0; t < nrows; ++t) {
       // nd = len(tp)
       int nd = indices.size();
       std::vector<double> rc(indices.size());
       std::vector<double> pr(indices.size());
-      for (size_t j = 0; j < indices.size(); ++j)
-      {
+      for (size_t j = 0; j < indices.size(); ++j) {
         int index = t * indices.size() + j;
         // rc = tp / npig
         rc[j] = tp_sum[index] / npig;
@@ -688,45 +834,40 @@ void accumulate(int T, int A, std::vector<int> &maxDets, std::vector<double> &re
         pr[j] = tp_sum[index] / (fp_sum[index] + tp_sum[index] + eps);
       }
 
-      recall[t * K * A * M + k * A * M + a * M + m] = nd ? rc[indices.size() - 1] : 0;
+      recall[t * K * A * M + k * A * M + a * M + m] =
+          nd ? rc[indices.size() - 1] : 0;
 
       std::vector<double> q(R);
       std::vector<double> ss(R);
 
-      for (int i = 0; i < R; i++)
-      {
+      for (int i = 0; i < R; i++) {
         q[i] = 0;
         ss[i] = 0;
       }
 
-      for (int i = nd - 1; i > 0; --i)
-      {
-        if (pr[i] > pr[i - 1])
-        {
+      for (int i = nd - 1; i > 0; --i) {
+        if (pr[i] > pr[i - 1]) {
           pr[i - 1] = pr[i];
         }
       }
 
       std::vector<int> inds(recThrs.size());
-      for (size_t i = 0; i < recThrs.size(); i++)
-      {
+      for (size_t i = 0; i < recThrs.size(); i++) {
         auto it = std::lower_bound(rc.begin(), rc.end(), recThrs[i]);
         inds[i] = it - rc.begin();
       }
 
-      for (size_t ri = 0; ri < inds.size(); ri++)
-      {
+      for (size_t ri = 0; ri < inds.size(); ri++) {
         size_t pi = inds[ri];
-        if (pi >= pr.size())
-          continue;
+        if (pi >= pr.size()) continue;
         q[ri] = pr[pi];
         ss[ri] = dtScoresSorted[pi];
       }
 
-      for (size_t i = 0; i < inds.size(); i++)
-      {
+      for (size_t i = 0; i < inds.size(); i++) {
         // precision[t,:,k,a,m] = np.array(q)
-        size_t index = t * R * K * A * M + i * K * A * M + k * A * M + a * M + m;
+        size_t index =
+            t * R * K * A * M + i * K * A * M + k * A * M + a * M + m;
         precision[index] = q[i];
         scores[index] = ss[i];
       }
@@ -734,27 +875,22 @@ void accumulate(int T, int A, std::vector<int> &maxDets, std::vector<double> &re
   }
 }
 
-void bbIou(double *dt, double *gt, int m, int n, int *iscrowd, double *o)
-{
+void bbIou(double *dt, double *gt, int m, int n, int *iscrowd, double *o) {
   double h, w, i, u, ga, da;
   int g, d;
   int crowd;
-  for (g = 0; g < n; g++)
-  {
+  for (g = 0; g < n; g++) {
     double *G = gt + g * 4;
     ga = G[2] * G[3];
     crowd = iscrowd != NULL && iscrowd[g];
-    for (d = 0; d < m; d++)
-    {
+    for (d = 0; d < m; d++) {
       double *D = dt + d * 4;
       da = D[2] * D[3];
       o[g * m + d] = 0;
       w = fmin(D[2] + D[0], G[2] + G[0]) - fmax(D[0], G[0]);
-      if (w <= 0)
-        continue;
+      if (w <= 0) continue;
       h = fmin(D[3] + D[1], G[3] + G[1]) - fmax(D[1], G[1]);
-      if (h <= 0)
-        continue;
+      if (h <= 0) continue;
       i = w * h;
       u = crowd ? da : da + ga - i;
       o[g * m + d] = i / u;
@@ -762,57 +898,48 @@ void bbIou(double *dt, double *gt, int m, int n, int *iscrowd, double *o)
   }
 }
 
-typedef struct
-{
+typedef struct {
   unsigned long h, w, m;
   unsigned int *cnts;
 } RLE;
 
-void rleInit(RLE *R, unsigned long h, unsigned long w, unsigned long m, unsigned int *cnts)
-{
+void rleInit(RLE *R, unsigned long h, unsigned long w, unsigned long m,
+             unsigned int *cnts) {
   R->h = h;
   R->w = w;
   R->m = m;
   R->cnts = (m == 0) ? 0 : (unsigned int *)malloc(sizeof(unsigned int) * m);
   unsigned long j;
   if (cnts)
-    for (j = 0; j < m; j++)
-      R->cnts[j] = cnts[j];
+    for (j = 0; j < m; j++) R->cnts[j] = cnts[j];
 }
 
-void rleFree(RLE *R)
-{
+void rleFree(RLE *R) {
   free(R->cnts);
   R->cnts = 0;
 }
 
-void rleFrString(RLE *R, char *s, unsigned long h, unsigned long w)
-{
+void rleFrString(RLE *R, char *s, unsigned long h, unsigned long w) {
   unsigned long m = 0, p = 0, k;
   long x;
   int more;
   unsigned int *cnts;
-  while (s[m])
-    m++;
+  while (s[m]) m++;
   cnts = (unsigned int *)malloc(sizeof(unsigned int) * m);
   m = 0;
-  while (s[p])
-  {
+  while (s[p]) {
     x = 0;
     k = 0;
     more = 1;
-    while (more)
-    {
+    while (more) {
       char c = s[p] - 48;
       x |= (c & 0x1f) << 5 * k;
       more = c & 0x20;
       p++;
       k++;
-      if (!more && (c & 0x10))
-        x |= -1 << 5 * k;
+      if (!more && (c & 0x10)) x |= -1 << 5 * k;
     }
-    if (m > 2)
-      x += (long)cnts[m - 2];
+    if (m > 2) x += (long)cnts[m - 2];
     cnts[m++] = (unsigned int)x;
   }
   rleInit(R, h, w, m, cnts);
@@ -822,22 +949,17 @@ void rleFrString(RLE *R, char *s, unsigned long h, unsigned long w)
 unsigned int umin(unsigned int a, unsigned int b) { return (a < b) ? a : b; }
 unsigned int umax(unsigned int a, unsigned int b) { return (a > b) ? a : b; }
 
-void rleArea(const RLE *R, unsigned long n, unsigned int *a)
-{
+void rleArea(const RLE *R, unsigned long n, unsigned int *a) {
   unsigned long i, j;
-  for (i = 0; i < n; i++)
-  {
+  for (i = 0; i < n; i++) {
     a[i] = 0;
-    for (j = 1; j < R[i].m; j += 2)
-      a[i] += R[i].cnts[j];
+    for (j = 1; j < R[i].m; j += 2) a[i] += R[i].cnts[j];
   }
 }
 
-void rleToBbox(const RLE *R, double *bb, unsigned long n)
-{
+void rleToBbox(const RLE *R, double *bb, unsigned long n) {
   unsigned long i;
-  for (i = 0; i < n; i++)
-  {
+  for (i = 0; i < n; i++) {
     unsigned int h, w, x, y, xs, ys, xe, ye, xp = 0, cc, t;
     unsigned long j, m;
     h = (unsigned int)R[i].h;
@@ -848,21 +970,18 @@ void rleToBbox(const RLE *R, double *bb, unsigned long n)
     ys = h;
     xe = ye = 0;
     cc = 0;
-    if (m == 0)
-    {
+    if (m == 0) {
       bb[4 * i + 0] = bb[4 * i + 1] = bb[4 * i + 2] = bb[4 * i + 3] = 0;
       continue;
     }
-    for (j = 0; j < m; j++)
-    {
+    for (j = 0; j < m; j++) {
       cc += R[i].cnts[j];
       t = cc - j % 2;
       y = t % h;
       x = (t - y) / h;
       if (j % 2 == 0)
         xp = x;
-      else if (xp < x)
-      {
+      else if (xp < x) {
         ys = 0;
         ye = h - 1;
       }
@@ -878,8 +997,7 @@ void rleToBbox(const RLE *R, double *bb, unsigned long n)
   }
 }
 
-void rleIou(RLE *dt, RLE *gt, int m, int n, int *iscrowd, double *o)
-{
+void rleIou(RLE *dt, RLE *gt, int m, int n, int *iscrowd, double *o) {
   int g, d;
   double *db, *gb;
   int crowd;
@@ -892,11 +1010,9 @@ void rleIou(RLE *dt, RLE *gt, int m, int n, int *iscrowd, double *o)
   free(gb);
   for (g = 0; g < n; g++)
     for (d = 0; d < m; d++)
-      if (o[g * m + d] > 0)
-      {
+      if (o[g * m + d] > 0) {
         crowd = iscrowd != NULL && iscrowd[g];
-        if (dt[d].h != gt[g].h || dt[d].w != gt[g].w)
-        {
+        if (dt[d].h != gt[g].h || dt[d].w != gt[g].w) {
           o[g * m + d] = -1;
           continue;
         }
@@ -911,26 +1027,21 @@ void rleIou(RLE *dt, RLE *gt, int m, int n, int *iscrowd, double *o)
         a = b = 1;
         i = u = 0;
         ct = 1;
-        while (ct > 0)
-        {
+        while (ct > 0) {
           c = umin(ca, cb);
-          if (va || vb)
-          {
+          if (va || vb) {
             u += c;
-            if (va && vb)
-              i += c;
+            if (va && vb) i += c;
           }
           ct = 0;
           ca -= c;
-          if (!ca && a < ka)
-          {
+          if (!ca && a < ka) {
             ca = dt[d].cnts[a++];
             va = !va;
           }
           ct += ca;
           cb -= c;
-          if (!cb && b < kb)
-          {
+          if (!cb && b < kb) {
             cb = gt[g].cnts[b++];
             vb = !vb;
           }
@@ -944,14 +1055,11 @@ void rleIou(RLE *dt, RLE *gt, int m, int n, int *iscrowd, double *o)
       }
 }
 
-void compute_iou(std::string iouType, int maxDet, int useCats)
-{
+void compute_iou(std::string iouType, int maxDet, int useCats) {
   assert(useCats > 0);
 
-  for (size_t i = 0; i < imgids.size(); i++)
-  {
-    for (size_t c = 0; c < catids.size(); c++)
-    {
+  for (size_t i = 0; i < imgids.size(); i++) {
+    for (size_t c = 0; c < catids.size(); c++) {
       int catId = catids[c];
       int imgId = imgids[i];
 
@@ -962,14 +1070,12 @@ void compute_iou(std::string iouType, int maxDet, int useCats)
 
       py::tuple k = py::make_tuple(imgId, catId);
 
-      if ((G == 0) && (D == 0))
-      {
+      if ((G == 0) && (D == 0)) {
         ious_map[key(imgId, catId)] = std::vector<double>();
         continue;
       }
       std::vector<float> scores;
-      for (size_t i = 0; i < D; i++)
-      {
+      for (size_t i = 0; i < D; i++) {
         auto score = -dtsm->score[i];
         scores.push_back(score);
       }
@@ -977,52 +1083,42 @@ void compute_iou(std::string iouType, int maxDet, int useCats)
 
       assert(iouType == "bbox" || iouType == "segm");
 
-      if (iouType == "bbox")
-      {
+      if (iouType == "bbox") {
         std::vector<double> g;
-        for (size_t i = 0; i < G; i++)
-        {
+        for (size_t i = 0; i < G; i++) {
           auto arr = gtsm->bbox[i];
-          for (size_t j = 0; j < arr.size(); j++)
-          {
+          for (size_t j = 0; j < arr.size(); j++) {
             g.push_back((double)arr[j]);
           }
         }
         std::vector<double> d;
-        for (size_t i = 0; i < std::min(D, (size_t)maxDet); i++)
-        {
+        for (size_t i = 0; i < std::min(D, (size_t)maxDet); i++) {
           auto arr = dtsm->bbox[inds[i]];
-          for (size_t j = 0; j < arr.size(); j++)
-          {
+          for (size_t j = 0; j < arr.size(); j++) {
             d.push_back((double)arr[j]);
           }
         }
         // compute iou between each dt and gt region
         // iscrowd = [int(o['iscrowd']) for o in gt]
         std::vector<int> iscrowd(G);
-        for (size_t i = 0; i < G; i++)
-        {
+        for (size_t i = 0; i < G; i++) {
           iscrowd[i] = gtsm->iscrowd[i];
         }
         int m = std::min(D, (size_t)maxDet);
         int n = G;
-        if (m == 0 || n == 0)
-        {
+        if (m == 0 || n == 0) {
           ious_map[key(imgId, catId)] = std::vector<double>();
           continue;
         }
         std::vector<double> iou(m * n);
         // internal conversion from compressed RLE format to Python RLEs object
-        //if (iouType == "bbox")
+        // if (iouType == "bbox")
         bbIou(&d[0], &g[0], m, n, &iscrowd[0], &iou[0]);
-        //rleIou(&dt[0],&gt[0],m,n,&iscrowd[0], double *o )
+        // rleIou(&dt[0],&gt[0],m,n,&iscrowd[0], double *o )
         ious_map[key(imgId, catId)] = iou;
-      }
-      else
-      {
+      } else {
         std::vector<RLE> g(G);
-        for (size_t i = 0; i < G; i++)
-        {
+        for (size_t i = 0; i < G; i++) {
           auto size = gtsm->segm_size[i];
           auto str = gtsm->segm_counts[i];
           char *val = new char[str.length() + 1];
@@ -1031,8 +1127,7 @@ void compute_iou(std::string iouType, int maxDet, int useCats)
           delete[] val;
         }
         std::vector<RLE> d(std::min(D, (size_t)maxDet));
-        for (size_t i = 0; i < std::min(D, (size_t)maxDet); i++)
-        {
+        for (size_t i = 0; i < std::min(D, (size_t)maxDet); i++) {
           auto size = dtsm->segm_size[i];
           auto str = dtsm->segm_counts[inds[i]];
           char *val = new char[str.length() + 1];
@@ -1041,36 +1136,30 @@ void compute_iou(std::string iouType, int maxDet, int useCats)
           delete[] val;
         }
         std::vector<int> iscrowd(G);
-        for (size_t i = 0; i < G; i++)
-        {
+        for (size_t i = 0; i < G; i++) {
           iscrowd[i] = gtsm->iscrowd[i];
         }
         int m = std::min(D, (size_t)maxDet);
         int n = G;
-        if (m == 0 || n == 0)
-        {
+        if (m == 0 || n == 0) {
           ious_map[key(imgId, catId)] = std::vector<double>();
-          for (size_t i = 0; i < g.size(); i++)
-          {
+          for (size_t i = 0; i < g.size(); i++) {
             free(g[i].cnts);
           }
-          for (size_t i = 0; i < d.size(); i++)
-          {
+          for (size_t i = 0; i < d.size(); i++) {
             free(d[i].cnts);
           }
           continue;
         }
         std::vector<double> iou(m * n);
         // internal conversion from compressed RLE format to Python RLEs object
-        //if (iouType == "bbox")
-        //bbIou(&d[0], &g[0], m, n, &iscrowd[0], &iou[0]);
+        // if (iouType == "bbox")
+        // bbIou(&d[0], &g[0], m, n, &iscrowd[0], &iou[0]);
         rleIou(&d[0], &g[0], m, n, &iscrowd[0], &iou[0]);
-        for (size_t i = 0; i < g.size(); i++)
-        {
+        for (size_t i = 0; i < g.size(); i++) {
           free(g[i].cnts);
         }
-        for (size_t i = 0; i < d.size(); i++)
-        {
+        for (size_t i = 0; i < d.size(); i++) {
           free(d[i].cnts);
         }
         ious_map[key(imgId, catId)] = iou;
@@ -1079,26 +1168,21 @@ void compute_iou(std::string iouType, int maxDet, int useCats)
   }
 }
 
-std::string rleToString(const RLE *R)
-{
+std::string rleToString(const RLE *R) {
   /* Similar to LEB128 but using 6 bits/char and ascii chars 48-111. */
   unsigned long i, m = R->m, p = 0;
   long x;
   int more;
   char *s = (char *)malloc(sizeof(char) * m * 6);
-  for (i = 0; i < m; i++)
-  {
+  for (i = 0; i < m; i++) {
     x = (long)R->cnts[i];
-    if (i > 2)
-      x -= (long)R->cnts[i - 2];
+    if (i > 2) x -= (long)R->cnts[i - 2];
     more = 1;
-    while (more)
-    {
+    while (more) {
       char c = x & 0x1f;
       x >>= 5;
       more = (c & 0x10) ? x != -1 : x != 0;
-      if (more)
-        c |= 0x20;
+      if (more) c |= 0x20;
       c += 48;
       s[p++] = c;
     }
@@ -1109,14 +1193,14 @@ std::string rleToString(const RLE *R)
   return str;
 }
 
-std::string frUncompressedRLE(std::vector<int> cnts, std::vector<int> size, int h, int w)
-{
-  unsigned int *data = (unsigned int *)malloc(cnts.size() * sizeof(unsigned int));
-  for (size_t i = 0; i < cnts.size(); i++)
-  {
+std::string frUncompressedRLE(std::vector<int> cnts, std::vector<int> size,
+                              int h, int w) {
+  unsigned int *data =
+      (unsigned int *)malloc(cnts.size() * sizeof(unsigned int));
+  for (size_t i = 0; i < cnts.size(); i++) {
     data[i] = (unsigned int)cnts[i];
   }
-  RLE R; // = RLE(size[0],size[1],cnts.size(),data);
+  RLE R;  // = RLE(size[0],size[1],cnts.size(),data);
   R.h = size[0];
   R.w = size[1];
   R.m = cnts.size();
@@ -1126,14 +1210,12 @@ std::string frUncompressedRLE(std::vector<int> cnts, std::vector<int> size, int 
   return str;
 }
 
-int uintCompare(const void *a, const void *b)
-{
+int uintCompare(const void *a, const void *b) {
   unsigned int c = *((unsigned int *)a), d = *((unsigned int *)b);
   return c > d ? 1 : c < d ? -1 : 0;
 }
 
-void rleFrPoly(RLE *R, const double *xy, int k, int h, int w)
-{
+void rleFrPoly(RLE *R, const double *xy, int k, int h, int w) {
   /* upsample and get discrete points densely along entire boundary */
   int j, m = 0;
   double scale = 5;
@@ -1141,27 +1223,23 @@ void rleFrPoly(RLE *R, const double *xy, int k, int h, int w)
   unsigned int *a, *b;
   x = (int *)malloc(sizeof(int) * (k + 1));
   y = (int *)malloc(sizeof(int) * (k + 1));
-  for (j = 0; j < k; j++)
-    x[j] = (int)(scale * xy[j * 2 + 0] + .5);
+  for (j = 0; j < k; j++) x[j] = (int)(scale * xy[j * 2 + 0] + .5);
   x[k] = x[0];
-  for (j = 0; j < k; j++)
-    y[j] = (int)(scale * xy[j * 2 + 1] + .5);
+  for (j = 0; j < k; j++) y[j] = (int)(scale * xy[j * 2 + 1] + .5);
   y[k] = y[0];
   for (j = 0; j < k; j++)
     m += umax(abs(x[j] - x[j + 1]), abs(y[j] - y[j + 1])) + 1;
   u = (int *)malloc(sizeof(int) * m);
   v = (int *)malloc(sizeof(int) * m);
   m = 0;
-  for (j = 0; j < k; j++)
-  {
+  for (j = 0; j < k; j++) {
     int xs = x[j], xe = x[j + 1], ys = y[j], ye = y[j + 1], dx, dy, t, d;
     int flip;
     double s;
     dx = abs(xe - xs);
     dy = abs(ys - ye);
     flip = (dx >= dy && xs > xe) || (dx < dy && ys > ye);
-    if (flip)
-    {
+    if (flip) {
       t = xs;
       xs = xe;
       xe = t;
@@ -1171,16 +1249,14 @@ void rleFrPoly(RLE *R, const double *xy, int k, int h, int w)
     }
     s = dx >= dy ? (double)(ye - ys) / dx : (double)(xe - xs) / dy;
     if (dx >= dy)
-      for (d = 0; d <= dx; d++)
-      {
+      for (d = 0; d <= dx; d++) {
         t = flip ? dx - d : d;
         u[m] = t + xs;
         v[m] = (int)(ys + s * t + .5);
         m++;
       }
     else
-      for (d = 0; d <= dy; d++)
-      {
+      for (d = 0; d <= dy; d++) {
         t = flip ? dy - d : d;
         v[m] = t + ys;
         u[m] = (int)(xs + s * t + .5);
@@ -1196,12 +1272,10 @@ void rleFrPoly(RLE *R, const double *xy, int k, int h, int w)
   x = (int *)malloc(sizeof(int) * k);
   y = (int *)malloc(sizeof(int) * k);
   for (j = 1; j < k; j++)
-    if (u[j] != u[j - 1])
-    {
+    if (u[j] != u[j - 1]) {
       xd = (double)(u[j] < u[j - 1] ? u[j] : u[j] - 1);
       xd = (xd + .5) / scale - .5;
-      if (floor(xd) != xd || xd < 0 || xd > w - 1)
-        continue;
+      if (floor(xd) != xd || xd < 0 || xd > w - 1) continue;
       yd = (double)(v[j] < v[j - 1] ? v[j] : v[j - 1]);
       yd = (yd + .5) / scale - .5;
       if (yd < 0)
@@ -1216,8 +1290,7 @@ void rleFrPoly(RLE *R, const double *xy, int k, int h, int w)
   /* compute rle encoding given y-boundary points */
   k = m;
   a = (unsigned int *)malloc(sizeof(unsigned int) * (k + 1));
-  for (j = 0; j < k; j++)
-    a[j] = (unsigned int)(x[j] * (int)(h) + y[j]);
+  for (j = 0; j < k; j++) a[j] = (unsigned int)(x[j] * (int)(h) + y[j]);
   a[k++] = (unsigned int)(h * w);
   free(u);
   free(v);
@@ -1225,8 +1298,7 @@ void rleFrPoly(RLE *R, const double *xy, int k, int h, int w)
   free(y);
   qsort(a, k, sizeof(unsigned int), uintCompare);
   unsigned int p = 0;
-  for (j = 0; j < k; j++)
-  {
+  for (j = 0; j < k; j++) {
     unsigned int t = a[j];
     a[j] -= p;
     p = t;
@@ -1237,41 +1309,33 @@ void rleFrPoly(RLE *R, const double *xy, int k, int h, int w)
   while (j < k)
     if (a[j] > 0)
       b[m++] = a[j++];
-    else
-    {
+    else {
       j++;
-      if (j < k)
-        b[m - 1] += a[j++];
+      if (j < k) b[m - 1] += a[j++];
     }
   rleInit(R, h, w, m, b);
   free(a);
   free(b);
 }
 
-void rleMerge(const RLE *R, RLE *M, unsigned long n, int intersect)
-{
+void rleMerge(const RLE *R, RLE *M, unsigned long n, int intersect) {
   unsigned int *cnts, c, ca, cb, cc, ct;
   int v, va, vb, vp;
   unsigned long i, a, b, h = R[0].h, w = R[0].w, m = R[0].m;
   RLE A, B;
-  if (n == 0)
-  {
+  if (n == 0) {
     rleInit(M, 0, 0, 0, 0);
     return;
   }
-  if (n == 1)
-  {
+  if (n == 1) {
     rleInit(M, h, w, m, R[0].cnts);
     return;
   }
   cnts = (unsigned int *)malloc(sizeof(unsigned int) * (h * w + 1));
-  for (a = 0; a < m; a++)
-    cnts[a] = R[0].cnts[a];
-  for (i = 1; i < n; i++)
-  {
+  for (a = 0; a < m; a++) cnts[a] = R[0].cnts[a];
+  for (i = 1; i < n; i++) {
     B = R[i];
-    if (B.h != h || B.w != w)
-    {
+    if (B.h != h || B.w != w) {
       h = w = m = 0;
       break;
     }
@@ -1283,21 +1347,18 @@ void rleMerge(const RLE *R, RLE *M, unsigned long n, int intersect)
     a = b = 1;
     cc = 0;
     ct = 1;
-    while (ct > 0)
-    {
+    while (ct > 0) {
       c = umin(ca, cb);
       cc += c;
       ct = 0;
       ca -= c;
-      if (!ca && a < A.m)
-      {
+      if (!ca && a < A.m) {
         ca = A.cnts[a++];
         va = !va;
       }
       ct += ca;
       cb -= c;
-      if (!cb && b < B.m)
-      {
+      if (!cb && b < B.m) {
         cb = B.cnts[b++];
         vb = !vb;
       }
@@ -1307,8 +1368,7 @@ void rleMerge(const RLE *R, RLE *M, unsigned long n, int intersect)
         v = va && vb;
       else
         v = va || vb;
-      if (v != vp || ct == 0)
-      {
+      if (v != vp || ct == 0) {
         cnts[m++] = cc;
         cc = 0;
       }
@@ -1319,24 +1379,19 @@ void rleMerge(const RLE *R, RLE *M, unsigned long n, int intersect)
   free(cnts);
 }
 
-void rlesInit(RLE **R, unsigned long n)
-{
+void rlesInit(RLE **R, unsigned long n) {
   unsigned long i;
   *R = (RLE *)malloc(sizeof(RLE) * n);
-  for (i = 0; i < n; i++)
-    rleInit((*R) + i, 0, 0, 0, 0);
+  for (i = 0; i < n; i++) rleInit((*R) + i, 0, 0, 0, 0);
 }
 
-std::string frPoly(std::vector<std::vector<double>> poly, int h, int w)
-{
+std::string frPoly(std::vector<std::vector<double>> poly, int h, int w) {
   size_t n = poly.size();
   RLE *Rs;
   rlesInit(&Rs, n);
-  for (size_t i = 0; i < n; i++)
-  {
+  for (size_t i = 0; i < n; i++) {
     double *p = (double *)malloc(sizeof(double) * poly[i].size());
-    for (size_t j = 0; j < poly[i].size(); j++)
-    {
+    for (size_t j = 0; j < poly[i].size(); j++) {
       p[j] = (double)poly[i][j];
     }
     rleFrPoly(&Rs[i], p, int(poly[i].size() / 2), h, w);
@@ -1359,17 +1414,14 @@ std::string frPoly(std::vector<std::vector<double>> poly, int h, int w)
   int intersect = 0;
   rleMerge(Rs, &R, n, intersect);
   std::string str = rleToString(&R);
-  for (size_t i = 0; i < n; i++)
-  {
+  for (size_t i = 0; i < n; i++) {
     free(Rs[i].cnts);
   }
   free(Rs);
   return str;
 }
 
-unsigned int
-area(std::vector<int> &size, std::string &counts)
-{
+unsigned int area(std::vector<int> &size, std::string &counts) {
   // _frString
   RLE *Rs;
   rlesInit(&Rs, 1);
@@ -1379,17 +1431,14 @@ area(std::vector<int> &size, std::string &counts)
   delete[] str;
   unsigned int a;
   rleArea(Rs, 1, &a);
-  for (size_t i = 0; i < 1; i++)
-  {
+  for (size_t i = 0; i < 1; i++) {
     free(Rs[i].cnts);
   }
   free(Rs);
   return a;
 }
 
-std::vector<float>
-toBbox(std::vector<int> &size, std::string &counts)
-{
+std::vector<float> toBbox(std::vector<int> &size, std::string &counts) {
   // _frString
   RLE *Rs;
   rlesInit(&Rs, 1);
@@ -1401,41 +1450,34 @@ toBbox(std::vector<int> &size, std::string &counts)
   std::vector<double> bb(4 * 1);
   rleToBbox(Rs, &bb[0], 1);
   std::vector<float> bbf(bb.size());
-  for (size_t i = 0; i < bb.size(); i++)
-  {
+  for (size_t i = 0; i < bb.size(); i++) {
     bbf[i] = (float)bb[i];
   }
-  for (size_t i = 0; i < 1; i++)
-  {
+  for (size_t i = 0; i < 1; i++) {
     free(Rs[i].cnts);
   }
   free(Rs);
   return bbf;
 }
 
-void annToRLE(anns_struct &ann, std::vector<std::vector<int>> &size, std::vector<std::string> &counts, int h, int w)
-{
+void annToRLE(anns_struct &ann, std::vector<std::vector<int>> &size,
+              std::vector<std::string> &counts, int h, int w) {
   auto is_segm_list = ann.segm_list.size() > 0;
   auto is_cnts_list = is_segm_list ? 0 : ann.segm_counts_list.size() > 0;
 
-  if (is_segm_list)
-  {
+  if (is_segm_list) {
     std::vector<int> segm_size{h, w};
     auto cnts = ann.segm_list;
     auto segm_counts = frPoly(cnts, h, w);
     size.push_back(segm_size);
     counts.push_back(segm_counts);
-  }
-  else if (is_cnts_list)
-  {
+  } else if (is_cnts_list) {
     auto segm_size = ann.segm_size;
     auto cnts = ann.segm_counts_list;
     auto segm_counts = frUncompressedRLE(cnts, segm_size, h, w);
     size.push_back(segm_size);
     counts.push_back(segm_counts);
-  }
-  else
-  {
+  } else {
     auto segm_size = ann.segm_size;
     auto segm_counts = ann.segm_counts_str;
     size.push_back(segm_size);
@@ -1443,21 +1485,20 @@ void annToRLE(anns_struct &ann, std::vector<std::vector<int>> &size, std::vector
   }
 }
 
-void getAnnsIds(std::unordered_map<size_t, std::vector<anns_struct>> &imgToAnns, std::unordered_map<size_t, anns_struct> &anns,
-                std::vector<int64_t> &ids, std::vector<int64_t> &imgIds, std::vector<int64_t> &catIds)
-{
-  for (size_t i = 0; i < imgIds.size(); i++)
-  {
+void getAnnsIds(std::unordered_map<size_t, std::vector<anns_struct>> &imgToAnns,
+                std::unordered_map<size_t, anns_struct> &anns,
+                std::vector<int64_t> &ids, std::vector<int64_t> &imgIds,
+                std::vector<int64_t> &catIds) {
+  for (size_t i = 0; i < imgIds.size(); i++) {
     auto hasimg = imgToAnns.find(imgIds[i]) != imgToAnns.end();
-    if (hasimg)
-    {
+    if (hasimg) {
       auto anns = imgToAnns[imgIds[i]];
-      for (size_t j = 0; j < anns.size(); j++)
-      {
+      for (size_t j = 0; j < anns.size(); j++) {
         //       auto catid = anns[j].category_id;
-        //        auto hascat = (std::find(catIds.begin(), catIds.end(), catid) != catIds.end());  // set might be faster? does it matter?
-        //        if (hascat) {
-        //auto area = py::cast<float>(anns[j]["area"]);
+        //        auto hascat = (std::find(catIds.begin(), catIds.end(), catid)
+        //        != catIds.end());  // set might be faster? does it matter? if
+        //        (hascat) {
+        // auto area = py::cast<float>(anns[j]["area"]);
         // some indices can have float values, so cast to double first
         ids.push_back(anns[j].id);
         //        }
@@ -1466,32 +1507,34 @@ void getAnnsIds(std::unordered_map<size_t, std::vector<anns_struct>> &imgToAnns,
   }
 }
 
-void cpp_load_res_numpy(py::dict dataset, std::vector<std::vector<float>> data)
-{
+void cpp_load_res_numpy(py::dict dataset,
+                        std::vector<std::vector<float>> data) {
   /*void cpp_load_res_numpy(py::dict dataset, py::array data) {
   auto buf = data.request();
   //float* data_ptr = (float*)buf.ptr;
   double* data_ptr = (double*)buf.ptr;//sometimes predictions are in double?
   size_t size = buf.shape[0];*/
-  for (size_t i = 0; i < data.size(); i++)
-  {
+  for (size_t i = 0; i < data.size(); i++) {
     /*  for (size_t i = 0; i < size; i++) {
     auto datai = &data_ptr[i*7];*/
     anns_struct ann;
     ann.image_id = int(data[i][0]);
-    //ann.image_id = int(datai[0]);
-    ann.bbox = std::vector<float>{data[i][1], data[i][2], data[i][3], data[i][4]};
-    //ann.bbox = std::vector<float>{(float)datai[1], (float)datai[2], (float)datai[3], (float)datai[4]};
+    // ann.image_id = int(datai[0]);
+    ann.bbox =
+        std::vector<float>{data[i][1], data[i][2], data[i][3], data[i][4]};
+    // ann.bbox = std::vector<float>{(float)datai[1], (float)datai[2],
+    // (float)datai[3], (float)datai[4]};
     ann.score = data[i][5];
-    //ann.score = datai[5];
+    // ann.score = datai[5];
     ann.category_id = data[i][6];
-    //ann.category_id = datai[6];
+    // ann.category_id = datai[6];
     auto bb = ann.bbox;
     auto x1 = bb[0];
     auto x2 = bb[0] + bb[2];
     auto y1 = bb[1];
     auto y2 = bb[1] + bb[3];
-    ann.segm_list = std::vector<std::vector<double>>{{x1, y1, x1, y2, x2, y2, x2, y1}};
+    ann.segm_list =
+        std::vector<std::vector<double>>{{x1, y1, x1, y2, x2, y2, x2, y1}};
     ann.area = bb[2] * bb[3];
     ann.id = i + 1;
     ann.iscrowd = 0;
@@ -1506,17 +1549,15 @@ void cpp_load_res_numpy(py::dict dataset, std::vector<std::vector<float>> data)
   }
 }
 
-void cpp_load_res(py::dict dataset, std::vector<py::dict> anns)
-{
+void cpp_load_res(py::dict dataset, std::vector<py::dict> anns) {
   auto iscaption = anns[0].contains("caption");
-  auto isbbox = anns[0].contains("bbox") && (py::cast<std::vector<float>>(anns[0]["bbox"]).size() > 0);
+  auto isbbox = anns[0].contains("bbox") &&
+                (py::cast<std::vector<float>>(anns[0]["bbox"]).size() > 0);
   auto issegm = anns[0].contains("segmentation");
   assert(!iscaption && (isbbox || issegm));
 
-  if (isbbox)
-  {
-    for (size_t i = 0; i < anns.size(); i++)
-    {
+  if (isbbox) {
+    for (size_t i = 0; i < anns.size(); i++) {
       anns_struct ann;
       ann.image_id = py::cast<int>(anns[i]["image_id"]);
       ann.category_id = py::cast<int64_t>(anns[i]["category_id"]);
@@ -1526,35 +1567,36 @@ void cpp_load_res(py::dict dataset, std::vector<py::dict> anns)
       auto x2 = bb[0] + bb[2];
       auto y1 = bb[1];
       auto y2 = bb[1] + bb[3];
-      if (!issegm)
-      {
-        ann.segm_list = std::vector<std::vector<double>>{{x1, y1, x1, y2, x2, y2, x2, y1}};
-      }
-      else
-      { // do we need all of these?
+      if (!issegm) {
+        ann.segm_list =
+            std::vector<std::vector<double>>{{x1, y1, x1, y2, x2, y2, x2, y1}};
+      } else {  // do we need all of these?
         auto is_segm_list = py::isinstance<py::list>(anns[i]["segmentation"]);
-        auto is_cnts_list = is_segm_list ? 0 : py::isinstance<py::list>(anns[i]["segmentation"]["counts"]);
-        if (is_segm_list)
-        {
-          ann.segm_list = py::cast<std::vector<std::vector<double>>>(anns[i]["segmentation"]);
-        }
-        else if (is_cnts_list)
-        {
-          ann.segm_size = py::cast<std::vector<int>>(anns[i]["segmentation"]["size"]);
-          ann.segm_counts_list = py::cast<std::vector<int>>(anns[i]["segmentation"]["counts"]);
-        }
-        else
-        {
-          ann.segm_size = py::cast<std::vector<int>>(anns[i]["segmentation"]["size"]);
-          ann.segm_counts_str = py::cast<std::string>(anns[i]["segmentation"]["counts"]);
+        auto is_cnts_list =
+            is_segm_list
+                ? 0
+                : py::isinstance<py::list>(anns[i]["segmentation"]["counts"]);
+        if (is_segm_list) {
+          ann.segm_list = py::cast<std::vector<std::vector<double>>>(
+              anns[i]["segmentation"]);
+        } else if (is_cnts_list) {
+          ann.segm_size =
+              py::cast<std::vector<int>>(anns[i]["segmentation"]["size"]);
+          ann.segm_counts_list =
+              py::cast<std::vector<int>>(anns[i]["segmentation"]["counts"]);
+        } else {
+          ann.segm_size =
+              py::cast<std::vector<int>>(anns[i]["segmentation"]["size"]);
+          ann.segm_counts_str =
+              py::cast<std::string>(anns[i]["segmentation"]["counts"]);
         }
       }
       ann.score = py::cast<float>(anns[i]["score"]);
       ann.area = bb[2] * bb[3];
       ann.id = i + 1;
       ann.iscrowd = 0;
-      //annsdt[ann.id] = ann;
-      //dtimgToAnns[(size_t)ann.image_id].push_back(ann);
+      // annsdt[ann.id] = ann;
+      // dtimgToAnns[(size_t)ann.image_id].push_back(ann);
       auto k = key(ann.image_id, ann.category_id);
       data_struct *tmp = &dts_map[k];
       tmp->area.push_back(ann.area);
@@ -1563,37 +1605,34 @@ void cpp_load_res(py::dict dataset, std::vector<py::dict> anns)
       tmp->score.push_back(ann.score);
       tmp->id.push_back(ann.id);
     }
-  }
-  else
-  {
+  } else {
     std::unordered_map<size_t, image_struct> imgsdt;
     auto imgs = py::cast<std::vector<py::dict>>(dataset["images"]);
-    for (size_t i = 0; i < imgs.size(); i++)
-    {
+    for (size_t i = 0; i < imgs.size(); i++) {
       image_struct img;
       img.id = (size_t)py::cast<double>(imgs[i]["id"]);
       img.h = py::cast<int>(imgs[i]["height"]);
       img.w = py::cast<int>(imgs[i]["width"]);
       imgsdt[img.id] = img;
     }
-    for (size_t i = 0; i < anns.size(); i++)
-    {
+    for (size_t i = 0; i < anns.size(); i++) {
       anns_struct ann;
       ann.image_id = py::cast<int>(anns[i]["image_id"]);
       ann.category_id = py::cast<int64_t>(anns[i]["category_id"]);
       // now only support compressed RLE format as segmentation results
-      ann.segm_size = py::cast<std::vector<int>>(anns[i]["segmentation"]["size"]);
-      ann.segm_counts_str = py::cast<std::string>(anns[i]["segmentation"]["counts"]);
+      ann.segm_size =
+          py::cast<std::vector<int>>(anns[i]["segmentation"]["size"]);
+      ann.segm_counts_str =
+          py::cast<std::string>(anns[i]["segmentation"]["counts"]);
       ann.area = area(ann.segm_size, ann.segm_counts_str);
-      if (!anns[0].contains("bbox"))
-      {
+      if (!anns[0].contains("bbox")) {
         ann.bbox = toBbox(ann.segm_size, ann.segm_counts_str);
       }
       ann.score = py::cast<float>(anns[i]["score"]);
       ann.id = i + 1;
       ann.iscrowd = 0;
-      //annsdt[ann.id] = ann;
-      //dtimgToAnns[(size_t)ann.image_id].push_back(ann);
+      // annsdt[ann.id] = ann;
+      // dtimgToAnns[(size_t)ann.image_id].push_back(ann);
       auto k = key(ann.image_id, ann.category_id);
       data_struct *tmp = &dts_map[k];
       tmp->area.push_back(ann.area);
@@ -1609,10 +1648,8 @@ void cpp_load_res(py::dict dataset, std::vector<py::dict> anns)
   }
 }
 
-void cpp_create_index(py::dict dataset)
-{
-  if (imgsgt.size() > 0 && imgids.size() > 0 && catids.size() > 0)
-  {
+void cpp_create_index(py::dict dataset) {
+  if (imgsgt.size() > 0 && imgids.size() > 0 && catids.size() > 0) {
     printf("GT annotations already exist!\n");
     return;
     // clear arrays
@@ -1624,8 +1661,7 @@ void cpp_create_index(py::dict dataset)
   }
 
   auto imgs = py::cast<std::vector<py::dict>>(dataset["images"]);
-  for (size_t i = 0; i < imgs.size(); i++)
-  {
+  for (size_t i = 0; i < imgs.size(); i++) {
     image_struct img;
     img.id = (size_t)py::cast<double>(imgs[i]["id"]);
     img.h = py::cast<int>(imgs[i]["height"]);
@@ -1634,15 +1670,13 @@ void cpp_create_index(py::dict dataset)
     imgids.push_back(img.id);
   }
   auto cats = py::cast<std::vector<py::dict>>(dataset["categories"]);
-  for (size_t i = 0; i < cats.size(); i++)
-  {
+  for (size_t i = 0; i < cats.size(); i++) {
     auto catid = py::cast<int>(cats[i]["id"]);
     catids.push_back(catid);
   }
 
   auto anns = py::cast<std::vector<py::dict>>(dataset["annotations"]);
-  for (size_t i = 0; i < anns.size(); i++)
-  {
+  for (size_t i = 0; i < anns.size(); i++) {
     anns_struct ann;
     ann.image_id = py::cast<int>(anns[i]["image_id"]);
     ann.category_id = py::cast<int64_t>(anns[i]["category_id"]);
@@ -1656,21 +1690,24 @@ void cpp_create_index(py::dict dataset)
     ann.bbox = py::cast<std::vector<float>>(anns[i]["bbox"]);
 
     auto is_segm_list = py::isinstance<py::list>(anns[i]["segmentation"]);
-    auto is_cnts_list = is_segm_list ? 0 : py::isinstance<py::list>(anns[i]["segmentation"]["counts"]);
+    auto is_cnts_list =
+        is_segm_list
+            ? 0
+            : py::isinstance<py::list>(anns[i]["segmentation"]["counts"]);
 
-    if (is_segm_list)
-    {
-      ann.segm_list = py::cast<std::vector<std::vector<double>>>(anns[i]["segmentation"]);
-    }
-    else if (is_cnts_list)
-    {
-      ann.segm_size = py::cast<std::vector<int>>(anns[i]["segmentation"]["size"]);
-      ann.segm_counts_list = py::cast<std::vector<int>>(anns[i]["segmentation"]["counts"]);
-    }
-    else
-    {
-      ann.segm_size = py::cast<std::vector<int>>(anns[i]["segmentation"]["size"]);
-      ann.segm_counts_str = py::cast<std::string>(anns[i]["segmentation"]["counts"]);
+    if (is_segm_list) {
+      ann.segm_list =
+          py::cast<std::vector<std::vector<double>>>(anns[i]["segmentation"]);
+    } else if (is_cnts_list) {
+      ann.segm_size =
+          py::cast<std::vector<int>>(anns[i]["segmentation"]["size"]);
+      ann.segm_counts_list =
+          py::cast<std::vector<int>>(anns[i]["segmentation"]["counts"]);
+    } else {
+      ann.segm_size =
+          py::cast<std::vector<int>>(anns[i]["segmentation"]["size"]);
+      ann.segm_counts_str =
+          py::cast<std::string>(anns[i]["segmentation"]["counts"]);
     }
 
     auto k = key(ann.image_id, ann.category_id);
@@ -1679,7 +1716,7 @@ void cpp_create_index(py::dict dataset)
     tmp->iscrowd.push_back(ann.iscrowd);
     tmp->bbox.push_back(ann.bbox);
     tmp->ignore.push_back(ann.iscrowd != 0);
-    //tmp->score.push_back(ann.score);
+    // tmp->score.push_back(ann.score);
     tmp->id.push_back(ann.id);
     auto h = imgsgt[(size_t)ann.image_id].h;
     auto w = imgsgt[(size_t)ann.image_id].w;
@@ -1687,8 +1724,7 @@ void cpp_create_index(py::dict dataset)
   }
 }
 
-PYBIND11_MODULE(ext, m)
-{
+PYBIND11_MODULE(ext, m) {
   m.doc() = "pybind11 pycocotools plugin";
   m.def("cpp_evaluate", &cpp_evaluate, "");
   m.def("cpp_evaluate_dist", &cpp_evaluate_dist, "");
