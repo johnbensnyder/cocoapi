@@ -3,8 +3,8 @@ import numpy as np
 import pybind11
 import os
 
-#os.environ["CC"] = "/opt/amazon/openmpi/bin/mpicxx"
-os.environ["CC"] = "mpicxx"
+os.environ["CC"] = "/opt/amazon/openmpi/bin/mpicxx"
+#os.environ["CC"] = "mpicxx"
 # To compile and install locally run "python setup.py build_ext --inplace"
 # To install library to Python site-packages run "python setup.py build_ext install"
 
