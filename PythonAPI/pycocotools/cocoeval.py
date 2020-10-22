@@ -7,6 +7,7 @@ from collections import defaultdict
 from . import mask as maskUtils
 import copy
 import ext
+from mpi4py import MPI
 
 class COCOeval:
     # Interface for evaluating detection on the Microsoft COCO dataset.
@@ -332,7 +333,7 @@ class COCOeval:
         print('Accumulating evaluation results...')
         tic = time.time()
 
-        from mpi4py import MPI
+       
         comm = MPI.Comm.Dup(MPI.COMM_WORLD)
         rank = comm.Get_rank()
         size = comm.Get_size()
