@@ -498,14 +498,14 @@ cpp_evaluate_dist(int useCats,
         }
       }
       // Gather from all nodes before accumulate
-      std::cout << gtIgnore_list.size() << " " << gtIgnore_list[0].size() << "\n";
+      // std::cout << gtIgnore_list.size() << " " << gtIgnore_list[0].size() << "\n";
 
-      std::vector<std::vector<int64_t>> gtIgnore_list_send(gtIgnore_list.size());
+      // std::vector<std::vector<int64_t>> gtIgnore_list_send(gtIgnore_list.size());
 
-      std::vector<std::vector<int64_t>> gtIgnore_list_rcv;
-      std::vector<std::vector<double>> dtIgnore_list_rcv;
-      std::vector<std::vector<double>> dtMatches_list_rcv;
-      std::vector<std::vector<double>> dtScores_list_rcv;
+      // std::vector<std::vector<int64_t>> gtIgnore_list_rcv;
+      // std::vector<std::vector<double>> dtIgnore_list_rcv;
+      // std::vector<std::vector<double>> dtMatches_list_rcv;
+      // std::vector<std::vector<double>> dtScores_list_rcv;
 
       // if (world_rank == 0)
       // {

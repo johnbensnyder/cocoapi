@@ -143,8 +143,8 @@ class COCOeval:
         self.params=p
 
         if self.use_ext:
-            #p.imgIds,p.catIds,self.eval = ext.cpp_evaluate(p.useCats,p.areaRng,p.iouThrs,p.maxDets,p.recThrs,p.iouType,self.num_threads)
-            p.imgIds,p.catIds,self.eval = ext.cpp_evaluate_dist(p.useCats,p.areaRng,p.iouThrs,p.maxDets,p.recThrs,p.iouType,self.num_threads)
+            p.imgIds,p.catIds,self.eval = ext.cpp_evaluate(p.useCats,p.areaRng,p.iouThrs,p.maxDets,p.recThrs,p.iouType,self.num_threads)
+            #p.imgIds,p.catIds,self.eval = ext.cpp_evaluate_dist(p.useCats,p.areaRng,p.iouThrs,p.maxDets,p.recThrs,p.iouType,self.num_threads)
             toc = time.time()
             print('DONE (t={:0.2f}s).'.format(toc-tic))
             return
@@ -331,6 +331,12 @@ class COCOeval:
         '''
         print('Accumulating evaluation results...')
         tic = time.time()
+
+        from mpi4py import MPI
+        comm = MPI.Comm.Dup(MPI.COMM_WORLD)
+        rank = comm.Get_rank()
+        size = comm.Get_size()
+        
         #if not self.evalImgs:
         #    print('Please run evaluate() first')
         # allows input customized parameters
@@ -370,22 +376,18 @@ class COCOeval:
                 Na = a0*I0
                 for m, maxDet in enumerate(m_list):
                     E = [self.evalImgs[Nk + Na + i] for i in i_list]
-                    E = [e for e in E if not e is None]
+                    #E = [e for e in E if e is not None and len(e['dtScores']) > 0]
+                    E = [e for e in E if e is not None]
                     if len(E) == 0:
                         continue
 
                     gtIg = np.concatenate([e['gtIgnore'] for e in E])
                     
-                    if(dist):
-                      from mpi4py import MPI
-                      comm = MPI.COMM_WORLD
-                      rank = comm.Get_rank()
-                      size = comm.Get_size()
-                      gtIg1 = comm.allgather(gtIg)
-                      
-                      gtIg = np.concatenate(gtIg1, axis=0)
-                      
                     npig = np.count_nonzero(gtIg==0 )
+                    if(dist):
+                      npig = comm.allgather(npig)
+                      
+                      npig = sum(npig)
                     if npig == 0:
                         continue
 
@@ -411,7 +413,6 @@ class COCOeval:
                     dtScoresSorted = dtScores[inds]
                     dtm  = dtm[:,inds]
                     dtIg = dtIg[:,inds]
-                    
                     
                     tps = np.logical_and(               dtm,  np.logical_not(dtIg) )
                     fps = np.logical_and(np.logical_not(dtm), np.logical_not(dtIg) )
