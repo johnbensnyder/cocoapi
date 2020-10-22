@@ -332,13 +332,8 @@ class COCOeval:
         :param p: input params for evaluation
         :return: None
         '''
-        print('Accumulating evaluation results...')
+        print('Accumulating evaluation results...', dist, self.use_ext)
         tic = time.time()
-
-       
-        comm = MPI.Comm.Dup(MPI.COMM_WORLD)
-        rank = comm.Get_rank()
-        size = comm.Get_size()
         
         #if not self.evalImgs:
         #    print('Please run evaluate() first')
