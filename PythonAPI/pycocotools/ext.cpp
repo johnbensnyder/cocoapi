@@ -688,9 +688,9 @@ void accumulate_dist(int T, int A, std::vector<int> &maxDets,
     auto dtIg = assemble_array_dist(dtignore, T, maxDet, indices, world_size,
                                     world_rank, accumulate_comm);
 
-    if (world_rank != 0) {
-      continue;
-    }  // else {
+    // if (world_rank != 0) {
+    //   continue;
+    // }  // else {
     //   std::cout << dtScores.size() << "\t" << dtm.size() << "\t" <<
     //   dtIg.size()
     //             << std::endl;
