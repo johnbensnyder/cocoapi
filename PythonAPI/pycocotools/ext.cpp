@@ -320,7 +320,7 @@ cpp_evaluate_dist(int useCats, std::vector<std::vector<double>> areaRngs,
       std::vector<std::vector<double>> dtIgnore_list;
       std::vector<std::vector<double>> dtMatches_list;
       std::vector<std::vector<double>> dtScores_list;
-      std::cout << "Imgids size is " << imgids.size() << std::endl;
+      // std::cout << "Imgids size is " << imgids.size() << std::endl;
       for (size_t i = 0; i < imgids.size(); i++) {
         int catId = catids[c];
         int imgId = imgids[i];
@@ -690,10 +690,11 @@ void accumulate_dist(int T, int A, std::vector<int> &maxDets,
 
     if (world_rank != 0) {
       continue;
-    } else {
-      std::cout << dtScores.size() << "\t" << dtm.size() << "\t" << dtIg.size()
-                << std::endl;
-    }
+    }  // else {
+    //   std::cout << dtScores.size() << "\t" << dtm.size() << "\t" <<
+    //   dtIg.size()
+    //             << std::endl;
+    // }
 
     int nrows = indices.size() ? dtm.size() / indices.size() : 0;
     std::vector<double> tp_sum(indices.size() * nrows);
