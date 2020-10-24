@@ -90,7 +90,8 @@ void accumulate_dist(int T, int A, std::vector<int> &maxDets,
                      std::vector<std::vector<int64_t>> &gtignore,
                      std::vector<std::vector<double>> &dtignore,
                      std::vector<std::vector<double>> &dtmatches,
-                     std::vector<std::vector<double>> &dtscores, bool dist);
+                     std::vector<std::vector<double>> &dtscores,
+                     MPI_Comm accumuate_comm);
 
 void compute_iou(std::string iouType, int maxDet, int useCats);
 
@@ -296,10 +297,14 @@ cpp_evaluate_dist(int useCats, std::vector<std::vector<double>> areaRngs,
                   int nthreads, std::vector<int64_t> imgids, bool dist) {
   assert(useCats > 0);
 
-  // int world_size;
-  // MPI_Comm_size(MPI_COMM_WORLD, &world_size);
-  // int world_rank;
-  // MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
+  MPI_Comm accumulate_comm[nthreads];
+  MPI_Request reqs[nthreads];
+  MPI_Status array_of_statuses[nthreads];
+  for (int i = 0; i < nthreads; ++i) {
+    MPI_Comm_idup(MPI_COMM_WORLD, &accumulate_comm[i], &reqs[i]);
+  }
+  int ret = MPI_Waitall(nthreads, reqs, array_of_statuses);
+  assert(ret == MPI_SUCCESS);
 
   int T = iouThrs_ptr.size();
   int A = areaRngs.size();
@@ -313,8 +318,9 @@ cpp_evaluate_dist(int useCats, std::vector<std::vector<double>> areaRngs,
   int maxDet = maxDets[M - 1];
   compute_iou(iouType, maxDet, useCats);
 
-  //#pragma omp parallel for num_threads(nthreads)
+#pragma omp parallel for num_threads(nthreads)
   for (size_t c = 0; c < catids.size(); c++) {
+    int tid = omp_get_thread_num();
     for (size_t a = 0; a < areaRngs.size(); a++) {
       std::vector<std::vector<int64_t>> gtIgnore_list;
       std::vector<std::vector<double>> dtIgnore_list;
@@ -448,34 +454,13 @@ cpp_evaluate_dist(int useCats, std::vector<std::vector<double>> areaRngs,
           dtScores[d] = dtsm->score[dtind[d]];
         }
       }
-      // Gather from all nodes before accumulate
-      // std::cout << gtIgnore_list.size() << " " << gtIgnore_list[0].size() <<
-      // "\n";
-
-      // std::vector<std::vector<int64_t>>
-      // gtIgnore_list_send(gtIgnore_list.size());
-
-      // std::vector<std::vector<int64_t>> gtIgnore_list_rcv;
-      // std::vector<std::vector<double>> dtIgnore_list_rcv;
-      // std::vector<std::vector<double>> dtMatches_list_rcv;
-      // std::vector<std::vector<double>> dtScores_list_rcv;
-
-      // if (world_rank == 0)
-      // {
-      //   gtIgnore_list_rcv.resize(gtIgnore_list.size() * world_size);
-      // }
-      // std::cout << MPI_Gather(&gtIgnore_list_send[0], gtIgnore_list.size(),
-      // MPI_INT64_T, &gtIgnore_list_rcv[0], gtIgnore_list.size(), MPI_INT64_T,
-      // 0, MPI_COMM_WORLD); if (world_rank == 0)
-      // {
-      //   std::cout << gtIgnore_list_rcv.size() << std::endl;
-      // }
 
       // accumulate
       accumulate_dist(iouThrs_ptr.size(), areaRngs.size(), maxDets, recThrs,
                       precision, recall, scores, catids.size(), imgids.size(),
                       recThrs.size(), maxDets.size(), c, a, gtIgnore_list,
-                      dtIgnore_list, dtMatches_list, dtScores_list, dist);
+                      dtIgnore_list, dtMatches_list, dtScores_list,
+                      accumulate_comm[tid]);
     }
   }
 
@@ -622,15 +607,15 @@ void accumulate_dist(int T, int A, std::vector<int> &maxDets,
                      std::vector<std::vector<int64_t>> &gtignore,
                      std::vector<std::vector<double>> &dtignore,
                      std::vector<std::vector<double>> &dtmatches,
-                     std::vector<std::vector<double>> &dtscores, bool dist) {
+                     std::vector<std::vector<double>> &dtscores,
+                     MPI_Comm accumulate_comm) {
   if (dtscores.size() == 0) return;
 
   int world_size;
-  MPI_Comm accumulate_comm;
-  MPI_Comm_dup(MPI_COMM_WORLD, &accumulate_comm);
-  MPI_Comm_size(MPI_COMM_WORLD, &world_size);
+  // MPI_Comm_dup(MPI_COMM_WORLD, &accumulate_comm);
+  MPI_Comm_size(accumulate_comm, &world_size);
   int world_rank;
-  MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
+  MPI_Comm_rank(accumulate_comm, &world_rank);
   int mpi_ret;
 
   for (int m = 0; m < M; ++m) {
@@ -644,19 +629,11 @@ void accumulate_dist(int T, int A, std::vector<int> &maxDets,
       }
     }
 
-    // AllGather number of ignores, if all ignores continue.
-    // Might need to validate others
-    // std::cout << "NPIG (before all gather) " << npig << std::endl;
-
-    std::vector<int> npig_gather(world_size);
-    mpi_ret = MPI_Allgather(&npig, 1, MPI_INT, npig_gather.data(), 1, MPI_INT,
-                            accumulate_comm);
+    int npigather;
+    mpi_ret =
+        MPI_Allreduce(&npig, &npigather, 1, MPI_INT, MPI_SUM, accumulate_comm);
     assert(MPI_SUCCESS == mpi_ret);
-
-    npig = 0;
-    for (auto &n : npig_gather) npig += n;
-
-    // std::cout << "NPIG (after all gather) " << npig << std::endl;
+    npig = npigather;
     if (npig == 0) continue;
 
     auto maxDet = maxDets[m];
@@ -688,13 +665,9 @@ void accumulate_dist(int T, int A, std::vector<int> &maxDets,
     auto dtIg = assemble_array_dist(dtignore, T, maxDet, indices, world_size,
                                     world_rank, accumulate_comm);
 
-    // if (world_rank != 0) {
-    //   continue;
-    // }  // else {
-    //   std::cout << dtScores.size() << "\t" << dtm.size() << "\t" <<
-    //   dtIg.size()
-    //             << std::endl;
-    // }
+    if (world_rank != 0) {
+      continue;
+    }
 
     int nrows = indices.size() ? dtm.size() / indices.size() : 0;
     std::vector<double> tp_sum(indices.size() * nrows);

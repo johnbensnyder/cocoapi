@@ -339,8 +339,8 @@ class COCOeval:
         #    print('Please run evaluate() first')
         # allows input customized parameters
         if self.use_ext:
-            toc = time.time()
-            print('DONE (t={:0.2f}s).'.format( toc-tic))
+            #toc = time.time()
+            #print('DONE (t={:0.2f}s).'.format( toc-tic))
             return
         if p is None:
             p = self.params
