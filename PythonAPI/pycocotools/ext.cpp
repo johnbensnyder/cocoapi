@@ -297,6 +297,7 @@ cpp_evaluate_dist(int useCats, std::vector<std::vector<double>> areaRngs,
                   int nthreads, std::vector<int64_t> imgids, bool dist) {
   assert(useCats > 0);
 
+  nthreads = 0;
   MPI_Comm accumulate_comm[nthreads];
   MPI_Request reqs[nthreads];
   MPI_Status array_of_statuses[nthreads];
@@ -318,7 +319,7 @@ cpp_evaluate_dist(int useCats, std::vector<std::vector<double>> areaRngs,
   int maxDet = maxDets[M - 1];
   compute_iou(iouType, maxDet, useCats);
 
-#pragma omp parallel for num_threads(nthreads)
+  //#pragma omp parallel for num_threads(nthreads)
   for (size_t c = 0; c < catids.size(); c++) {
     int tid = omp_get_thread_num();
     for (size_t a = 0; a < areaRngs.size(); a++) {
