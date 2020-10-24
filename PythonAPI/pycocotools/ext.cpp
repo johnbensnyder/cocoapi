@@ -297,7 +297,7 @@ cpp_evaluate_dist(int useCats, std::vector<std::vector<double>> areaRngs,
                   int nthreads, std::vector<int64_t> imgids, bool dist) {
   assert(useCats > 0);
 
-  nthreads = 0;
+  nthreads = 1;
   MPI_Comm accumulate_comm[nthreads];
   MPI_Request reqs[nthreads];
   MPI_Status array_of_statuses[nthreads];
