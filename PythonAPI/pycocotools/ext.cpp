@@ -543,13 +543,13 @@ std::vector<double> GatherArrays(std::vector<double> q, int world_size,
                                  int world_rank, MPI_Comm accum_comm) {
   // Gather arrays before getting sorted
   // Gather sizes They can be different
-  int array_sizes[world_size];
+  std::vector<int> array_sizes(world_size);
   size_t qsize = q.size();
-  int mpi_ret =
-      MPI_Gather(&qsize, 1, MPI_INT, &array_sizes, 1, MPI_INT, 0, accum_comm);
+  int mpi_ret = MPI_Gather(&qsize, 1, MPI_INT, array_sizes.data(), 1, MPI_INT,
+                           0, accum_comm);
   assert(mpi_ret == MPI_SUCCESS);
   int total_size = 0;
-  std::vector<int> displacements(world_size);
+  std::vector<int> displacements(world_size, 0);
   if (world_rank == 0) {
     for (int ii = 0; ii < world_size; ii++) {
       displacements[ii] = total_size;
@@ -557,12 +557,12 @@ std::vector<double> GatherArrays(std::vector<double> q, int world_size,
     }
   }
 
-  std::vector<double> q_total(total_size);
+  std::vector<double> q_total(total_size, 0.0);
 
   // Gatherv
-  mpi_ret =
-      MPI_Gatherv(q.data(), q.size(), MPI_DOUBLE, q_total.data(), array_sizes,
-                  displacements.data(), MPI_DOUBLE, 0, accum_comm);
+  mpi_ret = MPI_Gatherv(q.data(), q.size(), MPI_DOUBLE, q_total.data(),
+                        array_sizes.data(), displacements.data(), MPI_DOUBLE, 0,
+                        accum_comm);
   assert(mpi_ret == MPI_SUCCESS);
 
   return q_total;
@@ -610,7 +610,7 @@ void accumulate_dist(int T, int A, std::vector<int> &maxDets,
                      std::vector<std::vector<double>> &dtmatches,
                      std::vector<std::vector<double>> &dtscores,
                      MPI_Comm accumulate_comm) {
-  if (dtscores.size() == 0) return;
+  // if (dtscores.size() == 0) return;
 
   int world_size;
   // MPI_Comm_dup(MPI_COMM_WORLD, &accumulate_comm);
@@ -618,6 +618,15 @@ void accumulate_dist(int T, int A, std::vector<int> &maxDets,
   int world_rank;
   MPI_Comm_rank(accumulate_comm, &world_rank);
   int mpi_ret;
+
+  // Allreduce sum for dtscores size
+
+  // int dt_size = dtscores.size();
+  // int all_dt_size;
+  // mpi_ret = MPI_Allreduce(&dt_size, &all_dt_size, 1, MPI_INT, MPI_SUM,
+  //                         accumulate_comm);
+  // assert(MPI_SUCCESS == mpi_ret);
+  // if (all_dt_size == 0) return;
 
   for (int m = 0; m < M; ++m) {
     // gtIg = np.concatenate([e['gtIgnore'] for e in E])

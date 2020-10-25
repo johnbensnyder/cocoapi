@@ -332,7 +332,7 @@ class COCOeval:
         :param p: input params for evaluation
         :return: None
         '''
-        print('Accumulating evaluation results...', dist, self.use_ext)
+        print('Accumulating evaluation results...')
         tic = time.time()
         
         #if not self.evalImgs:
