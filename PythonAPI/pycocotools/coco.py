@@ -80,17 +80,17 @@ class COCO:
         self.dataset,self.anns,self.cats,self.imgs = dict(),dict(),dict(),dict()
         self.imgToAnns, self.catToImgs = defaultdict(list), defaultdict(list)
         if not annotation_file == None:
-            print('loading annotations into memory...')
+            #print('loading annotations into memory...')
             tic = time.time()
             dataset = json.load(open(annotation_file, 'r'))
             assert type(dataset)==dict, 'annotation file format {} not supported'.format(type(dataset))
-            print('Done (t={:0.2f}s)'.format(time.time()- tic))
+            #print('Done (t={:0.2f}s)'.format(time.time()- tic))
             self.dataset = dataset
             self.createIndex(use_ext)
 
     def createIndex(self, use_ext=False):
         # create index
-        print('creating index...')
+        #print('creating index...')
         if use_ext:
             ext.cpp_create_index(self.dataset)
             return
@@ -113,7 +113,7 @@ class COCO:
             for ann in self.dataset['annotations']:
                 catToImgs[ann['category_id']].append(ann['image_id'])
 
-        print('index created!')
+        #print('index created!')
 
         # create class members
         self.anns = anns
@@ -312,19 +312,19 @@ class COCO:
         """
         res = COCO(use_ext=use_ext)
         res.dataset['images'] = [img for img in self.dataset['images']]
-        print('Loading and preparing results...')
+        #print('Loading and preparing results...')
         tic = time.time()
         if use_ext:
             if type(resFile) == np.ndarray:
                 ext.cpp_load_res_numpy(res.dataset,resFile)
             else:
                 if type(resFile) == str:
-                    print('resFile is',resFile)
+                    #print('resFile is',resFile)
                     anns = json.load(open(resFile))
                 else:
                     anns = resFile
                 ext.cpp_load_res(res.dataset,anns)
-            print('DONE (t={:0.2f}s)'.format(time.time()- tic))
+            #print('DONE (t={:0.2f}s)'.format(time.time()- tic))
             return res
         if type(resFile) == str: #or type(resFile) == unicode:
             anns = json.load(open(resFile))
@@ -370,7 +370,7 @@ class COCO:
                 ann['area'] = (x1-x0)*(y1-y0)
                 ann['id'] = id + 1
                 ann['bbox'] = [x0,y0,x1-x0,y1-y0]
-        print('DONE (t={:0.2f}s)'.format(time.time()- tic))
+        #print('DONE (t={:0.2f}s)'.format(time.time()- tic))
 
         res.dataset['annotations'] = anns
         res.createIndex(use_ext)
@@ -406,9 +406,9 @@ class COCO:
         :param  data (numpy.ndarray)
         :return: annotations (python nested list)
         """
-        print('Converting ndarray to lists...')
+        #print('Converting ndarray to lists...')
         assert(type(data) == np.ndarray)
-        print(data.shape)
+        #print(data.shape)
         assert(data.shape[1] == 7)
         N = data.shape[0]
         ann = []
