@@ -47,7 +47,7 @@ struct data_struct {
   std::vector<int> ignore;
   std::vector<float> score;
   std::vector<std::vector<int>> segm_size;
-  std::vector<std::string> segm_counts;
+  std::vector<std::string> segm_counts;  // Change to RLE
   std::vector<int64_t> id;
 };
 
@@ -298,7 +298,7 @@ cpp_evaluate_dist(int useCats, std::vector<std::vector<double>> areaRngs,
   assert(useCats > 0);
 
   MPI_Comm accumulate_comm;
-  if (dist == 2) {
+  if (dist >= 2) {
     int world_rank, world_size;
     MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
     MPI_Comm_size(MPI_COMM_WORLD, &world_size);
@@ -306,17 +306,14 @@ cpp_evaluate_dist(int useCats, std::vector<std::vector<double>> areaRngs,
     // Get the group of processes in MPI_COMM_WORLD
     MPI_Group world_group;
     MPI_Comm_group(MPI_COMM_WORLD, &world_group);
-
     int group_size = int(world_size / 8);
     int ranks[group_size];
     for (auto i = 0; i < group_size; ++i) {
-      ranks[i] = i * 8;
+      ranks[i] = (i * 8) + (dist - 2);
     }
-
     // Construct a group containing all of the prime ranks in world_group
     MPI_Group hier_group;
     MPI_Group_incl(world_group, group_size, ranks, &hier_group);
-
     // Create a new communicator based on the group
     MPI_Comm_create_group(MPI_COMM_WORLD, hier_group, 0, &accumulate_comm);
   } else {
@@ -637,7 +634,7 @@ void accumulate_dist(int T, int A, std::vector<int> &maxDets,
                      std::vector<std::vector<double>> &dtscores,
                      MPI_Comm accumulate_comm) {
   // if (dtscores.size() == 0) return;
-
+  if (accumulate_comm == MPI_COMM_NULL) return;
   int world_size;
   // MPI_Comm_dup(MPI_COMM_WORLD, &accumulate_comm);
   MPI_Comm_size(accumulate_comm, &world_size);
@@ -664,7 +661,6 @@ void accumulate_dist(int T, int A, std::vector<int> &maxDets,
         if (ignore[j] == 0) npig++;
       }
     }
-
     int npigather;
     mpi_ret =
         MPI_Allreduce(&npig, &npigather, 1, MPI_INT, MPI_SUM, accumulate_comm);
@@ -1072,7 +1068,7 @@ void rleIou(RLE *dt, RLE *gt, int m, int n, int *iscrowd, double *o) {
 void compute_iou(std::string iouType, int maxDet, int useCats) {
   assert(useCats > 0);
 
-#pragma omp parallel for num_threads(96)
+  //#pragma omp parallel for num_threads(96)
   for (size_t i = 0; i < imgids.size(); i++) {
     for (size_t c = 0; c < catids.size(); c++) {
       int catId = catids[c];
