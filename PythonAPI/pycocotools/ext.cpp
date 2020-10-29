@@ -294,18 +294,44 @@ std::tuple<py::array_t<int64_t>, py::array_t<int64_t>, py::dict>
 cpp_evaluate_dist(int useCats, std::vector<std::vector<double>> areaRngs,
                   std::vector<double> iouThrs_ptr, std::vector<int> maxDets,
                   std::vector<double> recThrs, std::string iouType,
-                  int nthreads, std::vector<int64_t> imgids, bool dist) {
+                  int nthreads, std::vector<int64_t> imgids, int dist) {
   assert(useCats > 0);
 
-  nthreads = 1;
-  MPI_Comm accumulate_comm[nthreads];
-  MPI_Request reqs[nthreads];
-  MPI_Status array_of_statuses[nthreads];
-  for (int i = 0; i < nthreads; ++i) {
-    MPI_Comm_idup(MPI_COMM_WORLD, &accumulate_comm[i], &reqs[i]);
+  MPI_Comm accumulate_comm;
+  if (dist == 2) {
+    int world_rank, world_size;
+    MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
+    MPI_Comm_size(MPI_COMM_WORLD, &world_size);
+
+    // Get the group of processes in MPI_COMM_WORLD
+    MPI_Group world_group;
+    MPI_Comm_group(MPI_COMM_WORLD, &world_group);
+
+    int group_size = int(world_size / 8);
+    int ranks[group_size];
+    for (auto i = 0; i < group_size; ++i) {
+      ranks[i] = i * 8;
+    }
+
+    // Construct a group containing all of the prime ranks in world_group
+    MPI_Group hier_group;
+    MPI_Group_incl(world_group, group_size, ranks, &hier_group);
+
+    // Create a new communicator based on the group
+    MPI_Comm_create_group(MPI_COMM_WORLD, hier_group, 0, &accumulate_comm);
+  } else {
+    accumulate_comm = MPI_COMM_WORLD;
   }
-  int ret = MPI_Waitall(nthreads, reqs, array_of_statuses);
-  assert(ret == MPI_SUCCESS);
+
+  // nthreads = 1;
+  // MPI_Comm accumulate_comm[nthreads];
+  // MPI_Request reqs[nthreads];
+  // MPI_Status array_of_statuses[nthreads];
+  // for (int i = 0; i < nthreads; ++i) {
+  //   MPI_Comm_idup(MPI_COMM_WORLD, &accumulate_comm[i], &reqs[i]);
+  // }
+  // int ret = MPI_Waitall(nthreads, reqs, array_of_statuses);
+  // assert(ret == MPI_SUCCESS);
 
   int T = iouThrs_ptr.size();
   int A = areaRngs.size();
@@ -461,7 +487,7 @@ cpp_evaluate_dist(int useCats, std::vector<std::vector<double>> areaRngs,
                       precision, recall, scores, catids.size(), imgids.size(),
                       recThrs.size(), maxDets.size(), c, a, gtIgnore_list,
                       dtIgnore_list, dtMatches_list, dtScores_list,
-                      accumulate_comm[tid]);
+                      accumulate_comm);
     }
   }
 
@@ -1046,6 +1072,7 @@ void rleIou(RLE *dt, RLE *gt, int m, int n, int *iscrowd, double *o) {
 void compute_iou(std::string iouType, int maxDet, int useCats) {
   assert(useCats > 0);
 
+#pragma omp parallel for num_threads(96)
   for (size_t i = 0; i < imgids.size(); i++) {
     for (size_t c = 0; c < catids.size(); c++) {
       int catId = catids[c];
@@ -1056,7 +1083,7 @@ void compute_iou(std::string iouType, int maxDet, int useCats) {
       auto G = gtsm->id.size();
       auto D = dtsm->id.size();
 
-      py::tuple k = py::make_tuple(imgId, catId);
+      // py::tuple k = py::make_tuple(imgId, catId);
 
       if ((G == 0) && (D == 0)) {
         ious_map[key(imgId, catId)] = std::vector<double>();
