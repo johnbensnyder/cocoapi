@@ -84,11 +84,25 @@ def encode(bimask):
         h, w = bimask.shape
         return _mask.encode(bimask.reshape((h, w, 1), order='F'))[0]
 
+def encode_raw(bimask):
+    if len(bimask.shape) == 3:
+        #return _mask.encode(bimask)
+        raise ValueError("Don't support 3d shapes")
+    elif len(bimask.shape) == 2:
+        h, w = bimask.shape
+        return {"size": [h, w], "counts": _mask.encode_raw(bimask.reshape((h, w, 1), order='F'))}
+
 def decode(rleObjs):
     if type(rleObjs) == list:
         return _mask.decode(rleObjs)
     else:
         return _mask.decode([rleObjs])[:,:,0]
+
+def from_string(rleObjs):
+    if type(rleObjs) == list:
+        print(_mask.from_string(rleObjs).tolist())
+    else:
+        print(_mask.from_string([rleObjs]).tolist())
 
 def area(rleObjs):
     if type(rleObjs) == list:

@@ -3,8 +3,11 @@
 #include <pybind11/numpy.h>
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
+#include <pybind11/stl_bind.h>
 
 #include <chrono>
+
+PYBIND11_MAKE_OPAQUE(std::vector<uint>);
 
 namespace py = pybind11;
 
@@ -25,7 +28,7 @@ struct anns_struct {
   // segmentation
   std::vector<std::vector<double>> segm_list;
   std::vector<int> segm_size;
-  std::vector<int> segm_counts_list;
+  std::vector<uint> segm_counts_list;
   std::string segm_counts_str;
 };
 
@@ -47,7 +50,7 @@ struct data_struct {
   std::vector<int> ignore;
   std::vector<float> score;
   std::vector<std::vector<int>> segm_size;
-  std::vector<std::string> segm_counts;  // Change to RLE
+  std::vector<std::vector<uint>> segm_counts;  // Change to RLE
   std::vector<int64_t> id;
 };
 
@@ -111,6 +114,7 @@ std::tuple<py::array_t<int64_t>, py::array_t<int64_t>, py::dict> cpp_evaluate(
   std::vector<double> scores(T * R * K * A * M);
 
   int maxDet = maxDets[M - 1];
+  std::cout << "About calculate IOU";
   compute_iou(iouType, maxDet, useCats);
 
 #pragma omp parallel for num_threads(nthreads)
@@ -1038,6 +1042,10 @@ void rleIou(RLE *dt, RLE *gt, int m, int n, int *iscrowd, double *o) {
         i = u = 0;
         ct = 1;
         while (ct > 0) {
+          // std::cout << ca << " | " << ka << " | " << va << " | " << cb << " |
+          // "
+          //           << kb << " | " << a << " | " << i << " | " << ct
+          //           << std::endl;
           c = umin(ca, cb);
           if (va || vb) {
             u += c;
@@ -1073,6 +1081,8 @@ void compute_iou(std::string iouType, int maxDet, int useCats) {
     for (size_t c = 0; c < catids.size(); c++) {
       int catId = catids[c];
       int imgId = imgids[i];
+
+      if (imgId != 397133 && catId != 1) continue;
 
       auto gtsm = &gts_map[key(imgId, catId)];
       auto dtsm = &dts_map[key(imgId, catId)];
@@ -1131,20 +1141,39 @@ void compute_iou(std::string iouType, int maxDet, int useCats) {
         std::vector<RLE> g(G);
         for (size_t i = 0; i < G; i++) {
           auto size = gtsm->segm_size[i];
-          auto str = gtsm->segm_counts[i];
-          char *val = new char[str.length() + 1];
-          strcpy(val, str.c_str());
-          rleFrString(&g[i], val, size[0], size[1]);
-          delete[] val;
+          auto cnts = gtsm->segm_counts[i];
+          // char *val = new char[str.length() + 1];
+          // strcpy(val, str.c_str());
+          // rleFrString(&g[i], val, size[0], size[1]);
+          // delete[] val;
+          rleInit(&g[i], size[0], size[1], cnts.size(), &cnts[0]);
+          std::cout << "Got gRLE" << std::endl;
+          std::cout << imgId << " " << catId << " Counts size is "
+                    << cnts.size() << std::endl;
+          for (auto ii = 0; ii < cnts.size(); ii++) {
+            std::cout << cnts[ii] << " ";
+          }
+          std::cout << std::endl;
         }
         std::vector<RLE> d(std::min(D, (size_t)maxDet));
         for (size_t i = 0; i < std::min(D, (size_t)maxDet); i++) {
           auto size = dtsm->segm_size[i];
-          auto str = dtsm->segm_counts[inds[i]];
-          char *val = new char[str.length() + 1];
-          strcpy(val, str.c_str());
-          rleFrString(&d[i], val, size[0], size[1]);
-          delete[] val;
+          auto cnts = dtsm->segm_counts[inds[i]];
+          // char *val = new char[str.length() + 1];
+          // strcpy(val, str.c_str());
+          // rleFrString(&d[i], val, size[0], size[1]);
+          // delete[] val;
+          if (true) {  //(imgId == 139 && catId == 72) {
+            std::cout << imgId << " " << catId << " Counts size is "
+                      << cnts.size() << std::endl;
+            for (auto ii = 0; ii < cnts.size(); ii++) {
+              std::cout << cnts[ii] << " ";
+            }
+            std::cout << std::endl;
+          }
+
+          rleInit(&d[i], size[0], size[1], cnts.size(), &cnts[0]);
+          std::cout << "Got dRLE" << std::endl;
         }
         std::vector<int> iscrowd(G);
         for (size_t i = 0; i < G; i++) {
@@ -1166,6 +1195,7 @@ void compute_iou(std::string iouType, int maxDet, int useCats) {
         // internal conversion from compressed RLE format to Python RLEs object
         // if (iouType == "bbox")
         // bbIou(&d[0], &g[0], m, n, &iscrowd[0], &iou[0]);
+        std::cout << m << " " << n << " " << d[0].m << std::endl;
         rleIou(&d[0], &g[0], m, n, &iscrowd[0], &iou[0]);
         for (size_t i = 0; i < g.size(); i++) {
           free(g[i].cnts);
@@ -1396,7 +1426,7 @@ void rlesInit(RLE **R, unsigned long n) {
   for (i = 0; i < n; i++) rleInit((*R) + i, 0, 0, 0, 0);
 }
 
-std::string frPoly(std::vector<std::vector<double>> poly, int h, int w) {
+std::vector<uint> frPoly(std::vector<std::vector<double>> poly, int h, int w) {
   size_t n = poly.size();
   RLE *Rs;
   rlesInit(&Rs, n);
@@ -1424,22 +1454,25 @@ std::string frPoly(std::vector<std::vector<double>> poly, int h, int w) {
   RLE R;
   int intersect = 0;
   rleMerge(Rs, &R, n, intersect);
-  std::string str = rleToString(&R);
-  for (size_t i = 0; i < n; i++) {
-    free(Rs[i].cnts);
-  }
+  // std::string str = rleToString(&R);
+  // for (size_t i = 0; i < n; i++) {
+  //   free(Rs[i].cnts);
+  // }
+  std::vector<uint> cnts(R.cnts, R.cnts + R.m);
   free(Rs);
-  return str;
+  // return str;
+  return cnts;
 }
 
-unsigned int area(std::vector<int> &size, std::string &counts) {
+unsigned int area(std::vector<int> &size, std::vector<uint> &counts) {
   // _frString
   RLE *Rs;
   rlesInit(&Rs, 1);
-  char *str = new char[counts.length() + 1];
-  strcpy(str, counts.c_str());
-  rleFrString(&Rs[0], str, size[0], size[1]);
-  delete[] str;
+  // char *str = new char[counts.length() + 1];
+  // strcpy(str, counts.c_str());
+  // rleFrString(&Rs[0], str, size[0], size[1]);
+  // delete[] str;
+  rleInit(Rs, size[0], size[1], counts.size(), &counts[0]);
   unsigned int a;
   rleArea(Rs, 1, &a);
   for (size_t i = 0; i < 1; i++) {
@@ -1449,14 +1482,16 @@ unsigned int area(std::vector<int> &size, std::string &counts) {
   return a;
 }
 
-std::vector<float> toBbox(std::vector<int> &size, std::string &counts) {
+std::vector<float> toBbox(std::vector<int> &size, std::vector<uint> &counts) {
   // _frString
   RLE *Rs;
   rlesInit(&Rs, 1);
-  char *str = new char[counts.length() + 1];
-  strcpy(str, counts.c_str());
-  rleFrString(&Rs[0], str, size[0], size[1]);
-  delete[] str;
+  // char *str = new char[counts.length() + 1];
+  // strcpy(str, counts.c_str());
+  // rleFrString(&Rs[0], str, size[0], size[1]);
+  // delete[] str;
+
+  rleInit(Rs, size[0], size[1], counts.size(), &counts[0]);
 
   std::vector<double> bb(4 * 1);
   rleToBbox(Rs, &bb[0], 1);
@@ -1472,10 +1507,9 @@ std::vector<float> toBbox(std::vector<int> &size, std::string &counts) {
 }
 
 void annToRLE(anns_struct &ann, std::vector<std::vector<int>> &size,
-              std::vector<std::string> &counts, int h, int w) {
+              std::vector<std::vector<uint>> &counts, int h, int w) {
   auto is_segm_list = ann.segm_list.size() > 0;
   auto is_cnts_list = is_segm_list ? 0 : ann.segm_counts_list.size() > 0;
-
   if (is_segm_list) {
     std::vector<int> segm_size{h, w};
     auto cnts = ann.segm_list;
@@ -1485,14 +1519,15 @@ void annToRLE(anns_struct &ann, std::vector<std::vector<int>> &size,
   } else if (is_cnts_list) {
     auto segm_size = ann.segm_size;
     auto cnts = ann.segm_counts_list;
-    auto segm_counts = frUncompressedRLE(cnts, segm_size, h, w);
+    // auto segm_counts = frUncompressedRLE(cnts, segm_size, h, w);
     size.push_back(segm_size);
-    counts.push_back(segm_counts);
+    counts.push_back(cnts);
   } else {
-    auto segm_size = ann.segm_size;
-    auto segm_counts = ann.segm_counts_str;
-    size.push_back(segm_size);
-    counts.push_back(segm_counts);
+    // auto segm_size = ann.segm_size;
+    // auto segm_counts = ann.segm_counts_str;
+    // size.push_back(segm_size);
+    // counts.push_back(segm_counts);
+    std::cout << "\n\n\n\n\n WE SHOULD NOT BE HERE \n\n\n\n\n";
   }
 }
 
@@ -1574,34 +1609,37 @@ void cpp_load_res(py::dict dataset, std::vector<py::dict> anns) {
       ann.category_id = py::cast<int64_t>(anns[i]["category_id"]);
       auto bb = py::cast<std::vector<float>>(anns[i]["bbox"]);
       ann.bbox = bb;
-      auto x1 = bb[0];
-      auto x2 = bb[0] + bb[2];
-      auto y1 = bb[1];
-      auto y2 = bb[1] + bb[3];
-      if (!issegm) {
-        ann.segm_list =
-            std::vector<std::vector<double>>{{x1, y1, x1, y2, x2, y2, x2, y1}};
-      } else {  // do we need all of these?
-        auto is_segm_list = py::isinstance<py::list>(anns[i]["segmentation"]);
-        auto is_cnts_list =
-            is_segm_list
-                ? 0
-                : py::isinstance<py::list>(anns[i]["segmentation"]["counts"]);
-        if (is_segm_list) {
-          ann.segm_list = py::cast<std::vector<std::vector<double>>>(
-              anns[i]["segmentation"]);
-        } else if (is_cnts_list) {
-          ann.segm_size =
-              py::cast<std::vector<int>>(anns[i]["segmentation"]["size"]);
-          ann.segm_counts_list =
-              py::cast<std::vector<int>>(anns[i]["segmentation"]["counts"]);
-        } else {
-          ann.segm_size =
-              py::cast<std::vector<int>>(anns[i]["segmentation"]["size"]);
-          ann.segm_counts_str =
-              py::cast<std::string>(anns[i]["segmentation"]["counts"]);
-        }
-      }
+      // auto x1 = bb[0];
+      // auto x2 = bb[0] + bb[2];
+      // auto y1 = bb[1];
+      // auto y2 = bb[1] + bb[3];
+      // if (!issegm) {
+      //   ann.segm_list =
+      //       std::vector<std::vector<double>>{{x1, y1, x1, y2, x2, y2, x2,
+      //       y1}};
+      // } else {  // do we need all of these?
+      //   auto is_segm_list =
+      //   py::isinstance<py::list>(anns[i]["segmentation"]); auto is_cnts_list
+      //   =
+      //       is_segm_list
+      //           ? 0
+      //           :
+      //           py::isinstance<py::list>(anns[i]["segmentation"]["counts"]);
+      //   if (is_segm_list) {
+      //     ann.segm_list = py::cast<std::vector<std::vector<double>>>(
+      //         anns[i]["segmentation"]);
+      //   } else if (is_cnts_list) {
+      //     ann.segm_size =
+      //         py::cast<std::vector<int>>(anns[i]["segmentation"]["size"]);
+      //     ann.segm_counts_list =
+      //         py::cast<std::vector<int>>(anns[i]["segmentation"]["counts"]);
+      //   } else {
+      //     ann.segm_size =
+      //         py::cast<std::vector<int>>(anns[i]["segmentation"]["size"]);
+      //     ann.segm_counts_str =
+      //         py::cast<std::string>(anns[i]["segmentation"]["counts"]);
+      //   }
+      // }
       ann.score = py::cast<float>(anns[i]["score"]);
       ann.area = bb[2] * bb[3];
       ann.id = i + 1;
@@ -1617,15 +1655,18 @@ void cpp_load_res(py::dict dataset, std::vector<py::dict> anns) {
       tmp->id.push_back(ann.id);
     }
   } else {
-    std::unordered_map<size_t, image_struct> imgsdt;
-    auto imgs = py::cast<std::vector<py::dict>>(dataset["images"]);
-    for (size_t i = 0; i < imgs.size(); i++) {
-      image_struct img;
-      img.id = (size_t)py::cast<double>(imgs[i]["id"]);
-      img.h = py::cast<int>(imgs[i]["height"]);
-      img.w = py::cast<int>(imgs[i]["width"]);
-      imgsdt[img.id] = img;
-    }
+    // Removing this, This is only needed if we custom set the annonataions,
+    // but the imgs should already be loaded by creating the index
+    // std::unordered_map<size_t, image_struct> imgsdt;
+    // auto imgs = py::cast<std::vector<py::dict>>(dataset["images"]);
+    // for (size_t i = 0; i < imgs.size(); i++) {
+    //   image_struct img;
+    //   img.id = (size_t)py::cast<double>(imgs[i]["id"]);
+    //   img.h = py::cast<int>(imgs[i]["height"]);
+    //   img.w = py::cast<int>(imgs[i]["width"]);
+    //   imgsdt[img.id] = img;
+    // }
+
     for (size_t i = 0; i < anns.size(); i++) {
       anns_struct ann;
       ann.image_id = py::cast<int>(anns[i]["image_id"]);
@@ -1633,12 +1674,17 @@ void cpp_load_res(py::dict dataset, std::vector<py::dict> anns) {
       // now only support compressed RLE format as segmentation results
       ann.segm_size =
           py::cast<std::vector<int>>(anns[i]["segmentation"]["size"]);
-      ann.segm_counts_str =
-          py::cast<std::string>(anns[i]["segmentation"]["counts"]);
-      ann.area = area(ann.segm_size, ann.segm_counts_str);
-      if (!anns[0].contains("bbox")) {
-        ann.bbox = toBbox(ann.segm_size, ann.segm_counts_str);
-      }
+      ann.segm_counts_list =
+          anns[i]["segmentation"]["counts"].cast<std::vector<uint>>();
+      // py::array_t<uint32_t> casted_array =
+      //     py::cast<py::array>(anns[i]["segmentation"]["counts"]);
+
+      // ann.segm_counts_list = casted_array;
+      // std::cout << ann.segm_counts_list.size() << "\t";
+      // ann.area = area(ann.segm_size, ann.segm_counts_list);
+      // if (!anns[0].contains("bbox")) {
+      //  ann.bbox = toBbox(ann.segm_size, ann.segm_counts_list);
+      //}
       ann.score = py::cast<float>(anns[i]["score"]);
       ann.id = i + 1;
       ann.iscrowd = 0;
@@ -1652,8 +1698,9 @@ void cpp_load_res(py::dict dataset, std::vector<py::dict> anns) {
       tmp->score.push_back(ann.score);
       tmp->id.push_back(ann.id);
       // convert ground truth to mask if iouType == 'segm'
-      auto h = imgsdt[(size_t)ann.image_id].h;
-      auto w = imgsdt[(size_t)ann.image_id].w;
+      auto h = imgsgt[(size_t)ann.image_id]
+                   .h;  // We pass in the dataset from the annotations anyways
+      auto w = imgsgt[(size_t)ann.image_id].w;
       annToRLE(ann, tmp->segm_size, tmp->segm_counts, h, w);
     }
   }
@@ -1713,7 +1760,7 @@ void cpp_create_index(py::dict dataset) {
       ann.segm_size =
           py::cast<std::vector<int>>(anns[i]["segmentation"]["size"]);
       ann.segm_counts_list =
-          py::cast<std::vector<int>>(anns[i]["segmentation"]["counts"]);
+          py::cast<std::vector<uint>>(anns[i]["segmentation"]["counts"]);
     } else {
       ann.segm_size =
           py::cast<std::vector<int>>(anns[i]["segmentation"]["size"]);
@@ -1742,4 +1789,6 @@ PYBIND11_MODULE(ext, m) {
   m.def("cpp_create_index", &cpp_create_index, "");
   m.def("cpp_load_res", &cpp_load_res, "");
   m.def("cpp_load_res_numpy", &cpp_load_res_numpy, "");
+  pybind11::bind_vector<std::vector<uint>>(m, "CountsVec");
+  py::implicitly_convertible<py::list, std::vector<uint>>();
 }

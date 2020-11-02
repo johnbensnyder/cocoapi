@@ -145,8 +145,10 @@ class COCOeval:
 
         if self.use_ext:
             if(dist):
+              print("Dist")
               p.imgIds,p.catIds,self.eval = ext.cpp_evaluate_dist(p.useCats,p.areaRng,p.iouThrs,p.maxDets,p.recThrs,p.iouType,self.num_threads, p.imgIds,dist)
             else:
+              print("Non Dist")
               p.imgIds,p.catIds,self.eval = ext.cpp_evaluate(p.useCats,p.areaRng,p.iouThrs,p.maxDets,p.recThrs,p.iouType,self.num_threads)
             toc = time.time()
             print('DONE (t={:0.2f}s).'.format(toc-tic))
