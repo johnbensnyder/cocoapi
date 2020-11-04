@@ -114,7 +114,6 @@ std::tuple<py::array_t<int64_t>, py::array_t<int64_t>, py::dict> cpp_evaluate(
   std::vector<double> scores(T * R * K * A * M);
 
   int maxDet = maxDets[M - 1];
-  std::cout << "About calculate IOU";
   compute_iou(iouType, maxDet, useCats);
 
 #pragma omp parallel for num_threads(nthreads)
@@ -234,7 +233,8 @@ std::tuple<py::array_t<int64_t>, py::array_t<int64_t>, py::dict> cpp_evaluate(
         // set unmatched detections outside of area range to ignore
         for (int d = 0; d < D; d++) {
           float val = dtsm->area[dtind[d]];
-          double x3 = (val < aRng0 || val > aRng1);
+          double x3 = (val < aRng0 ||
+                       val > aRng1);  // why does this need to be a double
           for (int t = 0; t < T; t++) {
             double x1 = dtIg[t * D + d];
             double x2 = dtm[t * D + d];
@@ -348,7 +348,6 @@ cpp_evaluate_dist(int useCats, std::vector<std::vector<double>> areaRngs,
 
   //#pragma omp parallel for num_threads(nthreads)
   for (size_t c = 0; c < catids.size(); c++) {
-    int tid = omp_get_thread_num();
     for (size_t a = 0; a < areaRngs.size(); a++) {
       std::vector<std::vector<int64_t>> gtIgnore_list;
       std::vector<std::vector<double>> dtIgnore_list;
@@ -668,7 +667,7 @@ void accumulate_dist(int T, int A, std::vector<int> &maxDets,
     int npigather;
     mpi_ret =
         MPI_Allreduce(&npig, &npigather, 1, MPI_INT, MPI_SUM, accumulate_comm);
-    assert(MPI_SUCCESS == mpi_ret);
+    assert(mpi_ret == MPI_SUCCESS);
     npig = npigather;
     if (npig == 0) continue;
 
@@ -1013,16 +1012,18 @@ void rleToBbox(const RLE *R, double *bb, unsigned long n) {
 
 void rleIou(RLE *dt, RLE *gt, int m, int n, int *iscrowd, double *o) {
   int g, d;
-  double *db, *gb;
+  // double *db, *gb;
   int crowd;
-  db = (double *)malloc(sizeof(double) * m * 4);
-  rleToBbox(dt, db, m);
-  gb = (double *)malloc(sizeof(double) * n * 4);
-  rleToBbox(gt, gb, n);
-  bbIou(db, gb, m, n, iscrowd, o);
-  free(db);
-  free(gb);
+  // db = (double *)malloc(sizeof(double) * m * 4);
+  // rleToBbox(dt, db, m);
+  // gb = (double *)malloc(sizeof(double) * n * 4);
+  // rleToBbox(gt, gb, n);
+  // bbIou(db, gb, m, n, iscrowd, o);
+  // free(db);
+  // free(gb);
+  //#pragma omp parallel for num_threads(4)
   for (g = 0; g < n; g++)
+#pragma omp parallel for num_threads(4)
     for (d = 0; d < m; d++)
       if (o[g * m + d] > 0) {
         crowd = iscrowd != NULL && iscrowd[g];
@@ -1042,10 +1043,6 @@ void rleIou(RLE *dt, RLE *gt, int m, int n, int *iscrowd, double *o) {
         i = u = 0;
         ct = 1;
         while (ct > 0) {
-          // std::cout << ca << " | " << ka << " | " << va << " | " << cb << " |
-          // "
-          //           << kb << " | " << a << " | " << i << " | " << ct
-          //           << std::endl;
           c = umin(ca, cb);
           if (va || vb) {
             u += c;
@@ -1081,8 +1078,6 @@ void compute_iou(std::string iouType, int maxDet, int useCats) {
     for (size_t c = 0; c < catids.size(); c++) {
       int catId = catids[c];
       int imgId = imgids[i];
-
-      if (imgId != 397133 && catId != 1) continue;
 
       auto gtsm = &gts_map[key(imgId, catId)];
       auto dtsm = &dts_map[key(imgId, catId)];
@@ -1138,42 +1133,32 @@ void compute_iou(std::string iouType, int maxDet, int useCats) {
         // rleIou(&dt[0],&gt[0],m,n,&iscrowd[0], double *o )
         ious_map[key(imgId, catId)] = iou;
       } else {
+        std::vector<double> gb;
+        for (size_t i = 0; i < G; i++) {
+          auto arr = gtsm->bbox[i];
+          for (size_t j = 0; j < arr.size(); j++) {
+            gb.push_back((double)arr[j]);
+          }
+        }
+        std::vector<double> db;
+        for (size_t i = 0; i < std::min(D, (size_t)maxDet); i++) {
+          auto arr = dtsm->bbox[inds[i]];
+          for (size_t j = 0; j < arr.size(); j++) {
+            db.push_back((double)arr[j]);
+          }
+        }
+
         std::vector<RLE> g(G);
         for (size_t i = 0; i < G; i++) {
           auto size = gtsm->segm_size[i];
           auto cnts = gtsm->segm_counts[i];
-          // char *val = new char[str.length() + 1];
-          // strcpy(val, str.c_str());
-          // rleFrString(&g[i], val, size[0], size[1]);
-          // delete[] val;
           rleInit(&g[i], size[0], size[1], cnts.size(), &cnts[0]);
-          std::cout << "Got gRLE" << std::endl;
-          std::cout << imgId << " " << catId << " Counts size is "
-                    << cnts.size() << std::endl;
-          for (auto ii = 0; ii < cnts.size(); ii++) {
-            std::cout << cnts[ii] << " ";
-          }
-          std::cout << std::endl;
         }
         std::vector<RLE> d(std::min(D, (size_t)maxDet));
         for (size_t i = 0; i < std::min(D, (size_t)maxDet); i++) {
           auto size = dtsm->segm_size[i];
           auto cnts = dtsm->segm_counts[inds[i]];
-          // char *val = new char[str.length() + 1];
-          // strcpy(val, str.c_str());
-          // rleFrString(&d[i], val, size[0], size[1]);
-          // delete[] val;
-          if (true) {  //(imgId == 139 && catId == 72) {
-            std::cout << imgId << " " << catId << " Counts size is "
-                      << cnts.size() << std::endl;
-            for (auto ii = 0; ii < cnts.size(); ii++) {
-              std::cout << cnts[ii] << " ";
-            }
-            std::cout << std::endl;
-          }
-
           rleInit(&d[i], size[0], size[1], cnts.size(), &cnts[0]);
-          std::cout << "Got dRLE" << std::endl;
         }
         std::vector<int> iscrowd(G);
         for (size_t i = 0; i < G; i++) {
@@ -1194,8 +1179,7 @@ void compute_iou(std::string iouType, int maxDet, int useCats) {
         std::vector<double> iou(m * n);
         // internal conversion from compressed RLE format to Python RLEs object
         // if (iouType == "bbox")
-        // bbIou(&d[0], &g[0], m, n, &iscrowd[0], &iou[0]);
-        std::cout << m << " " << n << " " << d[0].m << std::endl;
+        bbIou(&db[0], &gb[0], m, n, &iscrowd[0], &iou[0]);
         rleIou(&d[0], &g[0], m, n, &iscrowd[0], &iou[0]);
         for (size_t i = 0; i < g.size(); i++) {
           free(g[i].cnts);
@@ -1527,7 +1511,7 @@ void annToRLE(anns_struct &ann, std::vector<std::vector<int>> &size,
     // auto segm_counts = ann.segm_counts_str;
     // size.push_back(segm_size);
     // counts.push_back(segm_counts);
-    std::cout << "\n\n\n\n\n WE SHOULD NOT BE HERE \n\n\n\n\n";
+    // std::cout << "\n\n\n\n\n WE SHOULD NOT BE HERE \n\n\n\n\n";
   }
 }
 
@@ -1596,11 +1580,10 @@ void cpp_load_res_numpy(py::dict dataset,
 }
 
 void cpp_load_res(py::dict dataset, std::vector<py::dict> anns) {
-  auto iscaption = anns[0].contains("caption");
   auto isbbox = anns[0].contains("bbox") &&
                 (py::cast<std::vector<float>>(anns[0]["bbox"]).size() > 0);
-  auto issegm = anns[0].contains("segmentation");
-  assert(!iscaption && (isbbox || issegm));
+  // assert(!iscaption && (isbbox || issegm));
+  assert(isbbox);
 
   if (isbbox) {
     for (size_t i = 0; i < anns.size(); i++) {
@@ -1676,15 +1659,22 @@ void cpp_load_res(py::dict dataset, std::vector<py::dict> anns) {
           py::cast<std::vector<int>>(anns[i]["segmentation"]["size"]);
       ann.segm_counts_list =
           anns[i]["segmentation"]["counts"].cast<std::vector<uint>>();
+      // auto test = anns[i]["segmentation"]["counts"].unchecked<1>();
+      // ann.segm_counts_list =
+      //    std::vector<uint>(test.data(), test.data() + test.size());
+      // py::cast<std::vector<uint>>(anns[i]["segmentation"]["counts"]);
+      //  .cast<py::array>()
+      //  .cast<std::vector<uint>>();
       // py::array_t<uint32_t> casted_array =
       //     py::cast<py::array>(anns[i]["segmentation"]["counts"]);
 
       // ann.segm_counts_list = casted_array;
       // std::cout << ann.segm_counts_list.size() << "\t";
       // ann.area = area(ann.segm_size, ann.segm_counts_list);
-      // if (!anns[0].contains("bbox")) {
-      //  ann.bbox = toBbox(ann.segm_size, ann.segm_counts_list);
-      //}
+      if (anns[i]["segmentation"].contains("bbox")) {
+        auto bb = py::cast<std::vector<float>>(anns[i]["segmentation"]["bbox"]);
+        ann.bbox = bb;
+      }
       ann.score = py::cast<float>(anns[i]["score"]);
       ann.id = i + 1;
       ann.iscrowd = 0;

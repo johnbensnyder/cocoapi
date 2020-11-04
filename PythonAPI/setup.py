@@ -13,14 +13,16 @@ ext_modules = [
         'pycocotools._mask',
         sources=['../common/maskApi.c', 'pycocotools/_mask.pyx'],
         include_dirs = [np.get_include(), '../common'],
-        extra_compile_args=['-Wno-cpp', '-Wno-unused-function', '-std=c99','-fpermissive'],
+        extra_compile_args=['-O3', '-Wno-cpp', '-Wno-unused-function', '-std=c99','-fpermissive'],
+        extra_link_args=['-lgomp'],
     ),
     Extension(
         'ext',
         sources=['pycocotools/ext.cpp'],
         include_dirs = [pybind11.get_include()],
-        extra_compile_args=['-O3', '-Wall', '-shared', '-fopenmp', '-std=c++11', '-fPIC'],
-        extra_link_args=['-lgomp'],
+        #extra_compile_args=['-O3', '-Wall', '-shared', '-fopenmp', '-std=c++11', '-fPIC'],
+        extra_compile_args=['-g', '-Wall', '-shared', '-fopenmp', '-std=c++11', '-fPIC'],
+        extra_link_args=['-lgomp', '-L/opt/amazon/openmpi/lib','-lmpi'],
     )
 ]
 
