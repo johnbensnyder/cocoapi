@@ -304,7 +304,7 @@ class COCO:
             for ann in anns:
                 print(ann['caption'])
 
-    def loadRes(self, resFile, use_ext=False):
+    def loadRes(self, resFile, use_ext=False, segm_cnts = None):
         """
         Load result file and return a result api object.
         :param   resFile (str)     : file name of result file
@@ -316,7 +316,10 @@ class COCO:
         tic = time.time()
         if use_ext:
             if type(resFile) == np.ndarray:
+              if(segm_cnts is None):
                 ext.cpp_load_res_numpy(res.dataset,resFile)
+              else:
+                ext.cpp_load_res_segm(res.dataset,resFile, segm_cnts)
             else:
                 if type(resFile) == str:
                     print('resFile is',resFile)

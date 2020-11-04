@@ -959,6 +959,30 @@ void rleFrString(RLE *R, char *s, unsigned long h, unsigned long w) {
   free(cnts);
 }
 
+void cntsFrString(std::vector<uint> &cnts, char *s, unsigned long h,
+                  unsigned long w) {
+  unsigned long m = 0, p = 0, k;
+  long x;
+  int more;
+  m = 0;
+  while (s[p]) {
+    x = 0;
+    k = 0;
+    more = 1;
+    while (more) {
+      char c = s[p] - 48;
+      x |= (c & 0x1f) << 5 * k;
+      more = c & 0x20;
+      p++;
+      k++;
+      if (!more && (c & 0x10)) x |= -1 << 5 * k;
+    }
+    if (m > 2) x += (long)cnts[m - 2];
+    m++;
+    cnts.push_back((unsigned int)x);
+  }
+}
+
 unsigned int umin(unsigned int a, unsigned int b) { return (a < b) ? a : b; }
 unsigned int umax(unsigned int a, unsigned int b) { return (a > b) ? a : b; }
 
@@ -1579,6 +1603,59 @@ void cpp_load_res_numpy(py::dict dataset,
   }
 }
 
+void cpp_load_res_segm(py::dict dataset, std::vector<std::vector<float>> anns,
+                       std::vector<std::string> cnts) {
+  size_t k;
+  //   data_struct *tmp;
+  // #pragma omp parallel for num_threads(24), private(k, tmp, dts_map)
+  for (size_t i = 0; i < anns.size(); i++) {
+    anns_struct ann;
+    ann.image_id = int(anns[i][0]);
+    ann.category_id = int64_t(anns[i][6]);
+    // now only support compressed RLE format as segmentation results
+    ann.segm_size = std::vector<int>{anns[i][7], anns[i][8]};
+    auto segm_str = cnts[i];
+    char *val = new char[segm_str.length() + 1];
+    strcpy(val, segm_str.c_str());
+    cntsFrString(ann.segm_counts_list, val, ann.segm_size[0], ann.segm_size[1]);
+    // ann.segm_counts_list = std::vector<uint>(cnts[i].begin(), cnts[i].end());
+    // auto test = anns[i]["segmentation"]["counts"].unchecked<1>();
+    // ann.segm_counts_list =
+    //    std::vector<uint>(test.data(), test.data() + test.size());
+    // py::cast<std::vector<uint>>(anns[i]["segmentation"]["counts"]);
+    //  .cast<py::array>()
+    //  .cast<std::vector<uint>>();
+    // py::array_t<uint32_t> casted_array =
+    //     py::cast<py::array>(anns[i]["segmentation"]["counts"]);
+
+    // ann.segm_counts_list = casted_array;
+    // std::cout << ann.segm_counts_list.size() << "\t";
+    // ann.area = area(ann.segm_size, ann.segm_counts_list);
+    ann.bbox =
+        std::vector<float>{anns[i][9], anns[i][10], anns[i][11], anns[i][12]};
+
+    ann.score = anns[i][5];
+
+    ann.id = i + 1;
+    ann.iscrowd = 0;
+    // annsdt[ann.id] = ann;
+    // dtimgToAnns[(size_t)ann.image_id].push_back(ann);
+    k = key(ann.image_id, ann.category_id);
+    // data_struct *tmp = &dts_map[k];
+    auto tmp = &dts_map[k];
+    tmp->area.push_back(ann.area);
+    tmp->iscrowd.push_back(ann.iscrowd);
+    tmp->bbox.push_back(ann.bbox);
+    tmp->score.push_back(ann.score);
+    tmp->id.push_back(ann.id);
+    // convert ground truth to mask if iouType == 'segm'
+    auto h = imgsgt[(size_t)ann.image_id]
+                 .h;  // We pass in the dataset from the annotations anyways
+    auto w = imgsgt[(size_t)ann.image_id].w;
+    annToRLE(ann, tmp->segm_size, tmp->segm_counts, h, w);
+  }
+}
+
 void cpp_load_res(py::dict dataset, std::vector<py::dict> anns) {
   auto isbbox = anns[0].contains("bbox") &&
                 (py::cast<std::vector<float>>(anns[0]["bbox"]).size() > 0);
@@ -1602,7 +1679,8 @@ void cpp_load_res(py::dict dataset, std::vector<py::dict> anns) {
       //       y1}};
       // } else {  // do we need all of these?
       //   auto is_segm_list =
-      //   py::isinstance<py::list>(anns[i]["segmentation"]); auto is_cnts_list
+      //   py::isinstance<py::list>(anns[i]["segmentation"]); auto
+      //   is_cnts_list
       //   =
       //       is_segm_list
       //           ? 0
@@ -1649,7 +1727,6 @@ void cpp_load_res(py::dict dataset, std::vector<py::dict> anns) {
     //   img.w = py::cast<int>(imgs[i]["width"]);
     //   imgsdt[img.id] = img;
     // }
-
     for (size_t i = 0; i < anns.size(); i++) {
       anns_struct ann;
       ann.image_id = py::cast<int>(anns[i]["image_id"]);
@@ -1657,8 +1734,14 @@ void cpp_load_res(py::dict dataset, std::vector<py::dict> anns) {
       // now only support compressed RLE format as segmentation results
       ann.segm_size =
           py::cast<std::vector<int>>(anns[i]["segmentation"]["size"]);
-      ann.segm_counts_list =
-          anns[i]["segmentation"]["counts"].cast<std::vector<uint>>();
+      auto segm_str = anns[i]["segmentation"]["counts"].cast<std::string>();
+
+      // ann.segm_counts_list =
+      //    anns[i]["segmentation"]["counts"].cast<std::vector<uint>>();
+      char *val = new char[segm_str.length() + 1];
+      strcpy(val, segm_str.c_str());
+      cntsFrString(ann.segm_counts_list, val, ann.segm_size[0],
+                   ann.segm_size[1]);
       // auto test = anns[i]["segmentation"]["counts"].unchecked<1>();
       // ann.segm_counts_list =
       //    std::vector<uint>(test.data(), test.data() + test.size());
@@ -1671,10 +1754,10 @@ void cpp_load_res(py::dict dataset, std::vector<py::dict> anns) {
       // ann.segm_counts_list = casted_array;
       // std::cout << ann.segm_counts_list.size() << "\t";
       // ann.area = area(ann.segm_size, ann.segm_counts_list);
-      if (anns[i]["segmentation"].contains("bbox")) {
-        auto bb = py::cast<std::vector<float>>(anns[i]["segmentation"]["bbox"]);
-        ann.bbox = bb;
-      }
+
+      auto bb = py::cast<std::vector<float>>(anns[i]["segmentation"]["bbox"]);
+      ann.bbox = bb;
+
       ann.score = py::cast<float>(anns[i]["score"]);
       ann.id = i + 1;
       ann.iscrowd = 0;
@@ -1778,6 +1861,7 @@ PYBIND11_MODULE(ext, m) {
   m.def("cpp_evaluate_dist", &cpp_evaluate_dist, "");
   m.def("cpp_create_index", &cpp_create_index, "");
   m.def("cpp_load_res", &cpp_load_res, "");
+  m.def("cpp_load_res_segm", &cpp_load_res_segm, "");
   m.def("cpp_load_res_numpy", &cpp_load_res_numpy, "");
   pybind11::bind_vector<std::vector<uint>>(m, "CountsVec");
   py::implicitly_convertible<py::list, std::vector<uint>>();
