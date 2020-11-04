@@ -1047,7 +1047,7 @@ void rleIou(RLE *dt, RLE *gt, int m, int n, int *iscrowd, double *o) {
   // free(gb);
   //#pragma omp parallel for num_threads(4)
   for (g = 0; g < n; g++)
-#pragma omp parallel for num_threads(4)
+#pragma omp parallel for num_threads(24)
     for (d = 0; d < m; d++)
       if (o[g * m + d] > 0) {
         crowd = iscrowd != NULL && iscrowd[g];
@@ -1605,17 +1605,26 @@ void cpp_load_res_numpy(py::dict dataset,
 
 void cpp_load_res_segm(py::dict dataset, std::vector<std::vector<float>> anns,
                        std::vector<std::string> cnts) {
-#pragma omp parallel for ordered, num_threads(24)
-  for (size_t i = 0; i < anns.size(); i++) {
+  std::vector<std::vector<uint>> cnts_uint(anns.size());
+#pragma omp parallel for num_threads(24)
+  for (size_t i = 0; i < anns.size(); ++i) {
+    auto segm_str = cnts[i];
+    char *val = new char[segm_str.length() + 1];
+    auto segm_size = std::vector<int>{anns[i][7], anns[i][8]};
+    strcpy(val, segm_str.c_str());
+    std::vector<uint> tmp;
+    cntsFrString(tmp, val, segm_size[0], segm_size[1]);
+    cnts_uint[i] = tmp;
+  }
+
+  for (size_t i = 0; i < anns.size(); ++i) {
     anns_struct ann;
     ann.image_id = int(anns[i][0]);
     ann.category_id = int64_t(anns[i][6]);
     // now only support compressed RLE format as segmentation results
     ann.segm_size = std::vector<int>{anns[i][7], anns[i][8]};
     auto segm_str = cnts[i];
-    char *val = new char[segm_str.length() + 1];
-    strcpy(val, segm_str.c_str());
-    cntsFrString(ann.segm_counts_list, val, ann.segm_size[0], ann.segm_size[1]);
+    ann.segm_counts_list = cnts_uint[i];
     ann.bbox =
         std::vector<float>{anns[i][9], anns[i][10], anns[i][11], anns[i][12]};
 
@@ -1623,11 +1632,8 @@ void cpp_load_res_segm(py::dict dataset, std::vector<std::vector<float>> anns,
 
     ann.id = i + 1;
     ann.iscrowd = 0;
-
     auto k = key(ann.image_id, ann.category_id);
-    data_struct *tmp;
-#pragma omp critical(update)
-    { tmp = &dts_map[k]; }
+    data_struct *tmp = &dts_map[k];
     tmp->area.push_back(ann.area);
     tmp->iscrowd.push_back(ann.iscrowd);
     tmp->bbox.push_back(ann.bbox);
@@ -1655,7 +1661,38 @@ void cpp_load_res(py::dict dataset, std::vector<py::dict> anns) {
       ann.category_id = py::cast<int64_t>(anns[i]["category_id"]);
       auto bb = py::cast<std::vector<float>>(anns[i]["bbox"]);
       ann.bbox = bb;
-
+      // auto x1 = bb[0];
+      // auto x2 = bb[0] + bb[2];
+      // auto y1 = bb[1];
+      // auto y2 = bb[1] + bb[3];
+      // if (!issegm) {
+      //   ann.segm_list =
+      //       std::vector<std::vector<double>>{{x1, y1, x1, y2, x2, y2, x2,
+      //       y1}};
+      // } else {  // do we need all of these?
+      //   auto is_segm_list =
+      //   py::isinstance<py::list>(anns[i]["segmentation"]); auto
+      //   is_cnts_list
+      //   =
+      //       is_segm_list
+      //           ? 0
+      //           :
+      //           py::isinstance<py::list>(anns[i]["segmentation"]["counts"]);
+      //   if (is_segm_list) {
+      //     ann.segm_list = py::cast<std::vector<std::vector<double>>>(
+      //         anns[i]["segmentation"]);
+      //   } else if (is_cnts_list) {
+      //     ann.segm_size =
+      //         py::cast<std::vector<int>>(anns[i]["segmentation"]["size"]);
+      //     ann.segm_counts_list =
+      //         py::cast<std::vector<int>>(anns[i]["segmentation"]["counts"]);
+      //   } else {
+      //     ann.segm_size =
+      //         py::cast<std::vector<int>>(anns[i]["segmentation"]["size"]);
+      //     ann.segm_counts_str =
+      //         py::cast<std::string>(anns[i]["segmentation"]["counts"]);
+      //   }
+      // }
       ann.score = py::cast<float>(anns[i]["score"]);
       ann.area = bb[2] * bb[3];
       ann.id = i + 1;
@@ -1671,6 +1708,17 @@ void cpp_load_res(py::dict dataset, std::vector<py::dict> anns) {
       tmp->id.push_back(ann.id);
     }
   } else {
+    // Removing this, This is only needed if we custom set the annonataions,
+    // but the imgs should already be loaded by creating the index
+    // std::unordered_map<size_t, image_struct> imgsdt;
+    // auto imgs = py::cast<std::vector<py::dict>>(dataset["images"]);
+    // for (size_t i = 0; i < imgs.size(); i++) {
+    //   image_struct img;
+    //   img.id = (size_t)py::cast<double>(imgs[i]["id"]);
+    //   img.h = py::cast<int>(imgs[i]["height"]);
+    //   img.w = py::cast<int>(imgs[i]["width"]);
+    //   imgsdt[img.id] = img;
+    // }
     for (size_t i = 0; i < anns.size(); i++) {
       anns_struct ann;
       ann.image_id = py::cast<int>(anns[i]["image_id"]);
@@ -1686,6 +1734,18 @@ void cpp_load_res(py::dict dataset, std::vector<py::dict> anns) {
       strcpy(val, segm_str.c_str());
       cntsFrString(ann.segm_counts_list, val, ann.segm_size[0],
                    ann.segm_size[1]);
+      // auto test = anns[i]["segmentation"]["counts"].unchecked<1>();
+      // ann.segm_counts_list =
+      //    std::vector<uint>(test.data(), test.data() + test.size());
+      // py::cast<std::vector<uint>>(anns[i]["segmentation"]["counts"]);
+      //  .cast<py::array>()
+      //  .cast<std::vector<uint>>();
+      // py::array_t<uint32_t> casted_array =
+      //     py::cast<py::array>(anns[i]["segmentation"]["counts"]);
+
+      // ann.segm_counts_list = casted_array;
+      // std::cout << ann.segm_counts_list.size() << "\t";
+      // ann.area = area(ann.segm_size, ann.segm_counts_list);
 
       auto bb = py::cast<std::vector<float>>(anns[i]["segmentation"]["bbox"]);
       ann.bbox = bb;
