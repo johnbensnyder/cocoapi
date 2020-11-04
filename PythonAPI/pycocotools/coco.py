@@ -312,7 +312,7 @@ class COCO:
         """
         res = COCO(use_ext=use_ext)
         res.dataset['images'] = [img for img in self.dataset['images']]
-        print('Loading and preparing results...')
+        #print('Loading and preparing results...')
         tic = time.time()
         if use_ext:
             if type(resFile) == np.ndarray:
@@ -327,7 +327,7 @@ class COCO:
                 else:
                     anns = resFile
                 ext.cpp_load_res(res.dataset,anns)
-            print('DONE (t={:0.2f}s)'.format(time.time()- tic))
+            #print('DONE (t={:0.2f}s)'.format(time.time()- tic))
             return res
         if type(resFile) == str: #or type(resFile) == unicode:
             anns = json.load(open(resFile))

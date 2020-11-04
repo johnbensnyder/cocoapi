@@ -707,6 +707,7 @@ void accumulate_dist(int T, int A, std::vector<int> &maxDets,
     int nrows = indices.size() ? dtm.size() / indices.size() : 0;
     std::vector<double> tp_sum(indices.size() * nrows);
     std::vector<double> fp_sum(indices.size() * nrows);
+#pragma omp parallel for num_threads(8)
     for (int i = 0; i < nrows; ++i) {
       size_t tsum = 0, fsum = 0;
       for (size_t j = 0; j < indices.size(); ++j) {
@@ -720,6 +721,7 @@ void accumulate_dist(int T, int A, std::vector<int> &maxDets,
 
     double eps =
         2.220446049250313e-16;  // std::numeric_limits<double>::epsilon();
+#pragma omp parallel for num_threads(8)
     for (int t = 0; t < nrows; ++t) {
       // nd = len(tp)
       int nd = indices.size();

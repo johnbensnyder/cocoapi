@@ -129,7 +129,7 @@ class COCOeval:
         :return: None
         '''
         tic = time.time()
-        print('Running per image evaluation...')
+        #print('Running per image evaluation...')
         p = self.params
         # add backward compatibility if useSegm is specified in params
         if not p.useSegm is None:
@@ -145,10 +145,8 @@ class COCOeval:
 
         if self.use_ext:
             if(dist):
-              print("Dist")
               p.imgIds,p.catIds,self.eval = ext.cpp_evaluate_dist(p.useCats,p.areaRng,p.iouThrs,p.maxDets,p.recThrs,p.iouType,self.num_threads, p.imgIds,dist)
             else:
-              print("Non Dist")
               p.imgIds,p.catIds,self.eval = ext.cpp_evaluate(p.useCats,p.areaRng,p.iouThrs,p.maxDets,p.recThrs,p.iouType,self.num_threads)
             toc = time.time()
             print('DONE (t={:0.2f}s).'.format(toc-tic))
@@ -334,7 +332,7 @@ class COCOeval:
         :param p: input params for evaluation
         :return: None
         '''
-        print('Accumulating evaluation results...')
+        #print('Accumulating evaluation results...')
         tic = time.time()
         
         #if not self.evalImgs:
