@@ -20,8 +20,6 @@ cimport numpy as np
 from libc.stdlib cimport malloc, free
 from libc.string cimport memcpy
 
-from ext import CountsVec
-
 # intialized Numpy. must do.
 np.import_array()
 
@@ -144,18 +142,6 @@ def encode(np.ndarray[np.uint8_t, ndim=3, mode='fortran'] mask):
     objs = _toString(Rs)
     return objs
 
-def encode_raw(np.ndarray[np.uint8_t, ndim=3, mode='fortran'] mask):
-    h, w, n = mask.shape[0], mask.shape[1], mask.shape[2]
-    cdef RLEs Rs = RLEs(n)
-    rleEncode(Rs._R,<byte*>mask.data,h,w,n)
-    # s = ""
-    # for ii in range(Rs._R[0].m):
-    #   s += str(Rs._R[0].cnts[ii]) + " "
-    # print(s )
-    #cdef np.ndarray[np.uint32_t, ndim=1] res = np.array(<uint[:Rs._R.m]>Rs._R[0].cnts, dtype=np.uint32)
-    
-    return CountsVec(<uint[:Rs._R.m]>Rs._R[0].cnts)
-    
 # decode mask from compressed list of RLE string or RLEs object
 def decode(rleObjs):
     cdef RLEs Rs = _frString(rleObjs)
