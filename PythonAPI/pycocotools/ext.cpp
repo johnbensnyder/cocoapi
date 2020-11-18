@@ -116,7 +116,7 @@ std::tuple<py::array_t<int64_t>, py::array_t<int64_t>, py::dict> cpp_evaluate(
   int maxDet = maxDets[M - 1];
   compute_iou(iouType, maxDet, useCats);
 
-#pragma omp parallel for num_threads(nthreads)
+//#pragma omp parallel for num_threads(nthreads)
   for (size_t c = 0; c < catids.size(); c++) {
     for (size_t a = 0; a < areaRngs.size(); a++) {
       std::vector<std::vector<int64_t>> gtIgnore_list;
@@ -707,7 +707,7 @@ void accumulate_dist(int T, int A, std::vector<int> &maxDets,
     int nrows = indices.size() ? dtm.size() / indices.size() : 0;
     std::vector<double> tp_sum(indices.size() * nrows);
     std::vector<double> fp_sum(indices.size() * nrows);
-#pragma omp parallel for num_threads(8)
+//#pragma omp parallel for num_threads(8)
     for (int i = 0; i < nrows; ++i) {
       size_t tsum = 0, fsum = 0;
       for (size_t j = 0; j < indices.size(); ++j) {
@@ -721,7 +721,7 @@ void accumulate_dist(int T, int A, std::vector<int> &maxDets,
 
     double eps =
         2.220446049250313e-16;  // std::numeric_limits<double>::epsilon();
-#pragma omp parallel for num_threads(8)
+//#pragma omp parallel for num_threads(8)
     for (int t = 0; t < nrows; ++t) {
       // nd = len(tp)
       int nd = indices.size();
@@ -1049,7 +1049,7 @@ void rleIou(RLE *dt, RLE *gt, int m, int n, int *iscrowd, double *o) {
   // free(gb);
   //#pragma omp parallel for num_threads(4)
   for (g = 0; g < n; g++)
-#pragma omp parallel for num_threads(24)
+//#pragma omp parallel for num_threads(24)
     for (d = 0; d < m; d++)
       if (o[g * m + d] > 0) {
         crowd = iscrowd != NULL && iscrowd[g];
@@ -1608,7 +1608,7 @@ void cpp_load_res_numpy(py::dict dataset,
 void cpp_load_res_segm(py::dict dataset, std::vector<std::vector<float>> anns,
                        std::vector<std::string> cnts) {
   std::vector<std::vector<uint>> cnts_uint(anns.size());
-#pragma omp parallel for num_threads(24)
+//#pragma omp parallel for num_threads(24)
   for (size_t i = 0; i < anns.size(); ++i) {
     auto segm_str = cnts[i];
     char *val = new char[segm_str.length() + 1];
